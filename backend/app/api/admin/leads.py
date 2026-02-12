@@ -53,3 +53,23 @@ async def get_lead(
     if not detail:
         raise HTTPException(status_code=404, detail="Lead not found")
     return LeadDetail(**detail)
+
+
+@router.get("/leads/{lead_id}/sequences")
+async def get_sequences(
+    lead_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    org_id = current_user["org_id"]
+    # Verify lead belongs to org
+    lead = await conn.fetchval(
+        "SELECT id FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    from app.services.lead_service import get_lead_sequences
+    sequences = await get_lead_sequences(conn, str(lead_id))
+    return sequences

@@ -155,13 +155,15 @@ async def main():
     conn = await asyncpg.connect(DATABASE_URL)
 
     try:
-        # Run migration
-        migration_path = os.path.join(os.path.dirname(__file__), "migrations", "001_initial.sql")
-        with open(migration_path) as f:
-            migration_sql = f.read()
-
-        print("Running migrations...")
-        await conn.execute(migration_sql)
+        # Run migrations
+        migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+        for migration_file in sorted(os.listdir(migrations_dir)):
+            if migration_file.endswith(".sql"):
+                migration_path = os.path.join(migrations_dir, migration_file)
+                with open(migration_path) as f:
+                    migration_sql = f.read()
+                print(f"Running migration: {migration_file}...")
+                await conn.execute(migration_sql)
         print("Migrations complete.")
 
         # Create org
@@ -211,6 +213,57 @@ async def main():
             ["en", "es"],
         )
         print(f"Funnel created: {funnel_id}")
+
+        # Update funnel with automation settings
+        print("Updating funnel automation settings...")
+        routing_rules = {
+            "rules": [
+                {
+                    "when": {"field": "service", "equals": "solar"},
+                    "then": {"tag": "solar", "priority": "high"},
+                },
+                {
+                    "when": {"field": "service", "equals": "buy"},
+                    "then": {"tag": "buyer", "priority": "medium"},
+                },
+                {
+                    "when": {"field": "service", "equals": "sell"},
+                    "then": {"tag": "seller", "priority": "medium"},
+                },
+            ]
+        }
+        await conn.execute(
+            """
+            UPDATE funnels
+            SET routing_rules = $1::jsonb,
+                auto_email_enabled = $2,
+                auto_sms_enabled = $3,
+                auto_call_enabled = $4,
+                rep_phone_number = $5,
+                working_hours_start = $6,
+                working_hours_end = $7,
+                sequence_enabled = $8,
+                sequence_config = $9::jsonb
+            WHERE id = $10
+            """,
+            json.dumps(routing_rules),
+            False,
+            False,
+            False,
+            "+15551234567",
+            9,
+            19,
+            False,
+            json.dumps({
+                "steps": [
+                    {"delay_minutes": 0, "message": "Thanks for your interest in SolarPrime!"},
+                    {"delay_minutes": 1440, "message": "Just checking in - still interested?"},
+                    {"delay_minutes": 4320, "message": "Last chance to connect with our team!"},
+                ]
+            }),
+            funnel_id,
+        )
+        print("Funnel automation settings updated.")
 
         # Create sample leads
         print("Creating sample leads...")

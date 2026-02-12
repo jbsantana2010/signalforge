@@ -6,6 +6,19 @@ import { getToken } from '@/lib/auth';
 import { fetchLeads } from '@/lib/api';
 import { LeadListItem, LeadsResponse } from '@/types/admin';
 
+function PriorityBadge({ priority }: { priority: string }) {
+  const colors: Record<string, string> = {
+    high: 'bg-red-100 text-red-800',
+    medium: 'bg-yellow-100 text-yellow-800',
+    low: 'bg-green-100 text-green-800',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${colors[priority] || 'bg-gray-100 text-gray-700'}`}>
+      {priority}
+    </span>
+  );
+}
+
 export default function LeadsListPage() {
   const [leads, setLeads] = useState<LeadListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -51,6 +64,12 @@ export default function LeadsListPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const aiScoreColor = (score: number) => {
+    if (score >= 70) return 'text-green-700';
+    if (score >= 50) return 'text-yellow-700';
+    return 'text-red-700';
   };
 
   return (
@@ -118,7 +137,13 @@ export default function LeadsListPage() {
                     Service
                   </th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Language
+                    Priority
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    AI Score
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tags
                   </th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Score
@@ -129,13 +154,13 @@ export default function LeadsListPage() {
               <tbody className="divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                       Loading...
                     </td>
                   </tr>
                 ) : leads.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                       No leads found
                     </td>
                   </tr>
@@ -156,8 +181,34 @@ export default function LeadsListPage() {
                           {lead.service || '-'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-700 uppercase">
-                        {lead.language}
+                      <td className="px-6 py-4">
+                        {lead.priority ? <PriorityBadge priority={lead.priority} /> : <span className="text-sm text-gray-400">-</span>}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium">
+                        {lead.ai_score != null ? (
+                          <span className={aiScoreColor(lead.ai_score)}>{lead.ai_score}</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {lead.tags && lead.tags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {lead.tags.slice(0, 3).map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex px-1.5 py-0.5 text-xs font-medium rounded bg-blue-50 text-blue-700"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {lead.tags.length > 3 && (
+                              <span className="text-xs text-gray-400">+{lead.tags.length - 3}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700">
                         {lead.score !== null ? lead.score : '-'}

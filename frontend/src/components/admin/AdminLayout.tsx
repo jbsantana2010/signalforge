@@ -44,6 +44,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Leads
               </a>
+              <a
+                href="/admin/funnels"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Funnels
+              </a>
             </div>
             <button
               onClick={handleLogout}

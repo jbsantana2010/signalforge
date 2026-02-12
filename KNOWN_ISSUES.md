@@ -33,3 +33,14 @@
 - Multi-user org management
 - Funnel A/B testing
 - Export leads as CSV
+
+## Sprint 2 Known Issues
+
+1. **Server Time for Working Hours**: Working hours use server time, not the funnel's timezone. Timezone support planned for Sprint 3.
+2. **Simple Retry Logic**: Call retry uses asyncio.sleep (in-process). Not durable — lost on server restart. Production should use a task queue (Celery/etc).
+3. **No Webhook Signature Validation**: Twilio webhooks use a simple shared secret query param rather than Twilio's request signature validation.
+4. **Email is Basic**: Uses plain SMTP with text content. No HTML templates or rich formatting.
+5. **AI Stub Only**: Without CLAUDE_API_KEY, AI scoring uses a simple deterministic stub. Real AI scoring requires an Anthropic API key.
+6. **No SMS Opt-in Tracking**: SMS is sent based on funnel toggle only. No per-lead consent tracking.
+7. **Single Call Retry**: Only retries once after 2 minutes. No exponential backoff or configurable retry policy.
+8. **No Routing Rule Validation UI**: The routing rules editor does basic validation but doesn't preview rule matches.

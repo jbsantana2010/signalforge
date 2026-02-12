@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000';
 
 export async function fetchFunnel(slug: string) {
   const res = await fetch(`${API_BASE}/public/funnels/${slug}`, {
@@ -73,5 +73,34 @@ export async function fetchAdminFunnels(token: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Failed to fetch funnels');
+  return res.json();
+}
+
+export async function fetchFunnelDetail(token: string, funnelId: string) {
+  const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Failed to fetch funnel');
+  return res.json();
+}
+
+export async function updateFunnelSettings(token: string, funnelId: string, data: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update funnel');
+  return res.json();
+}
+
+export async function fetchLeadSequences(token: string, leadId: string) {
+  const res = await fetch(`${API_BASE}/admin/leads/${leadId}/sequences`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Failed to fetch sequences');
   return res.json();
 }

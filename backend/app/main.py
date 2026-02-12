@@ -35,6 +35,13 @@ app.include_router(admin_auth.router, prefix="/admin", tags=["Admin Auth"])
 app.include_router(admin_leads.router, prefix="/admin", tags=["Admin Leads"])
 app.include_router(admin_funnels.router, prefix="/admin", tags=["Admin Funnels"])
 
+# Twilio webhook router (created by Agent B)
+try:
+    from app.api.public.twilio import router as public_twilio
+    app.include_router(public_twilio, prefix="/public", tags=["Public Twilio"])
+except ImportError:
+    pass
+
 
 @app.get("/health")
 async def health():

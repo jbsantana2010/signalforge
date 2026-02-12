@@ -71,6 +71,9 @@ class LeadListItem(BaseModel):
     service: Optional[str] = None
     language: str
     score: Optional[float] = None
+    tags: list[str] | None = None
+    priority: str | None = None
+    ai_score: int | None = None
 
 
 class LeadDetail(BaseModel):
@@ -83,6 +86,16 @@ class LeadDetail(BaseModel):
     score: Optional[float] = None
     is_spam: bool
     created_at: datetime
+    tags: list[str] | None = None
+    priority: str | None = None
+    ai_summary: str | None = None
+    ai_score: int | None = None
+    email_status: str | None = None
+    sms_status: str | None = None
+    call_status: str | None = None
+    call_attempts: int = 0
+    contact_status: str | None = None
+    last_contacted_at: datetime | None = None
 
 
 # --- Admin: Auth ---
@@ -110,6 +123,69 @@ class FunnelListItem(BaseModel):
     created_at: datetime
 
 
+# --- Routing Rules ---
+
+
+class RoutingRuleCondition(BaseModel):
+    field: str
+    equals: str
+
+
+class RoutingRuleAction(BaseModel):
+    tag: str | None = None
+    priority: str | None = None
+
+
+class RoutingRule(BaseModel):
+    when: RoutingRuleCondition
+    then: RoutingRuleAction
+
+
+class RoutingRulesConfig(BaseModel):
+    rules: list[RoutingRule] = []
+
+
+# --- Admin: Funnel Detail & Update ---
+
+
+class FunnelDetail(BaseModel):
+    id: UUID
+    org_id: UUID
+    slug: str
+    name: str
+    schema_json: dict
+    languages: list[str]
+    is_active: bool
+    created_at: datetime
+    routing_rules: dict | None = None
+    auto_email_enabled: bool = False
+    auto_sms_enabled: bool = False
+    auto_call_enabled: bool = False
+    notification_emails: list[str] | None = None
+    webhook_url: str | None = None
+    rep_phone_number: str | None = None
+    twilio_from_number: str | None = None
+    working_hours_start: int = 9
+    working_hours_end: int = 19
+    sequence_enabled: bool = False
+    sequence_config: dict | None = None
+
+
+class FunnelUpdateRequest(BaseModel):
+    routing_rules: dict | None = None
+    auto_email_enabled: bool | None = None
+    auto_sms_enabled: bool | None = None
+    auto_call_enabled: bool | None = None
+    notification_emails: list[str] | None = None
+    webhook_url: str | None = None
+    rep_phone_number: str | None = None
+    twilio_from_number: str | None = None
+    working_hours_start: int | None = None
+    working_hours_end: int | None = None
+    sequence_enabled: bool | None = None
+    sequence_config: dict | None = None
+
+
 # --- Paginated response ---
 
 
@@ -118,3 +194,12 @@ class LeadListResponse(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class LeadSequenceItem(BaseModel):
+    id: UUID
+    step: int
+    scheduled_at: datetime
+    sent_at: datetime | None = None
+    status: str
+    message: str | None = None

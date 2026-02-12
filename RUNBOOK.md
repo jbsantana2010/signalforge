@@ -101,3 +101,68 @@ To re-seed (resets data):
 cd backend
 python seed.py
 ```
+
+## Sprint 2: Automation Engine
+
+### New Environment Variables
+
+Add these to your `backend/.env`:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `CLAUDE_API_KEY` | No | - | Anthropic API key for AI lead scoring. Falls back to deterministic stub if missing. |
+| `SMTP_HOST` | No | - | SMTP server hostname for email notifications |
+| `SMTP_PORT` | No | 587 | SMTP server port |
+| `SMTP_USER` | No | - | SMTP authentication username |
+| `SMTP_PASS` | No | - | SMTP authentication password |
+| `SMTP_FROM` | No | - | From email address for notifications |
+| `TWILIO_ACCOUNT_SID` | No | - | Twilio account SID for SMS and voice calls |
+| `TWILIO_AUTH_TOKEN` | No | - | Twilio auth token |
+| `TWILIO_WEBHOOK_SECRET` | No | `dev-webhook-secret` | Shared secret for validating Twilio webhook callbacks |
+| `BASE_URL` | No | `http://localhost:8000` | Public base URL for webhook callbacks |
+
+### Automation Features
+
+Sprint 2 adds automatic lead processing on submission:
+1. **Routing**: Tags and priority assignment based on funnel routing rules
+2. **AI Scoring**: Lead score (0-100) and summary generation
+3. **Email Notification**: Optional email to notification addresses
+4. **SMS Notification**: Optional SMS to lead via Twilio
+5. **Bridge Call**: Optional rep-to-lead phone bridge via Twilio Voice
+
+All automation is non-blocking — lead submission returns immediately.
+
+### Feature Toggles
+
+Each funnel has independent toggles:
+- `auto_email_enabled` — Send email notifications on new leads
+- `auto_sms_enabled` — Send SMS to leads via Twilio
+- `auto_call_enabled` — Initiate rep bridge calls via Twilio Voice
+
+Configure via Admin UI: `/admin/funnels/{id}/settings`
+
+### Working Hours
+
+Bridge calls respect working hours (server time):
+- `working_hours_start` (default: 9) — Hour to start placing calls (0-23)
+- `working_hours_end` (default: 19) — Hour to stop placing calls (0-23)
+- Outside this window, calls are skipped with status `skipped_outside_hours`
+
+### Running Migration
+
+The seed script automatically runs all migrations:
+```bash
+cd backend
+python seed.py
+```
+
+### New Admin Endpoints
+
+- `GET /admin/funnels/{id}` — Funnel detail with automation settings
+- `PATCH /admin/funnels/{id}` — Update funnel automation settings
+
+### New Public Endpoints (Twilio Webhooks)
+
+- `POST /public/twilio/rep-answer` — TwiML for rep call answer
+- `POST /public/twilio/rep-gather` — TwiML for rep digit input
+- `POST /public/twilio/status` — Status callback for calls/SMS

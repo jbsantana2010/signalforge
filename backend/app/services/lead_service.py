@@ -116,7 +116,8 @@ async def get_leads(
 
     rows = await conn.fetch(
         f"""
-        SELECT l.id, l.created_at, l.answers_json, l.language, l.score
+        SELECT l.id, l.created_at, l.answers_json, l.language, l.score,
+               l.tags, l.priority, l.ai_score
         FROM leads l
         WHERE {where_clause}
         ORDER BY l.created_at DESC
@@ -137,6 +138,9 @@ async def get_leads(
                 "service": answers.get("service"),
                 "language": row["language"],
                 "score": float(row["score"]) if row["score"] is not None else None,
+                "tags": list(row["tags"]) if row["tags"] else None,
+                "priority": row["priority"],
+                "ai_score": row["ai_score"],
             }
         )
 
@@ -148,7 +152,11 @@ async def get_lead_detail(
 ) -> dict | None:
     row = await conn.fetchrow(
         """
-        SELECT id, org_id, funnel_id, language, answers_json, source_json, score, is_spam, created_at
+        SELECT id, org_id, funnel_id, language, answers_json, source_json,
+               score, is_spam, created_at,
+               tags, priority, ai_summary, ai_score,
+               email_status, sms_status, call_status, call_attempts,
+               contact_status, last_contacted_at
         FROM leads
         WHERE id = $1 AND org_id = $2
         """,
@@ -171,6 +179,16 @@ async def get_lead_detail(
         "score": float(row["score"]) if row["score"] is not None else None,
         "is_spam": row["is_spam"],
         "created_at": row["created_at"],
+        "tags": list(row["tags"]) if row["tags"] else None,
+        "priority": row["priority"],
+        "ai_summary": row["ai_summary"],
+        "ai_score": row["ai_score"],
+        "email_status": row["email_status"],
+        "sms_status": row["sms_status"],
+        "call_status": row["call_status"],
+        "call_attempts": row["call_attempts"] or 0,
+        "contact_status": row["contact_status"],
+        "last_contacted_at": row["last_contacted_at"],
     }
 
 
@@ -185,3 +203,131 @@ async def get_funnels_for_org(conn: asyncpg.Connection, org_id: str) -> list[dic
         org_id,
     )
     return [dict(row) for row in rows]
+
+
+async def get_funnel_detail(
+    conn: asyncpg.Connection, org_id: str, funnel_id: str
+) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT id, org_id, slug, name, schema_json, languages, is_active, created_at,
+               routing_rules, auto_email_enabled, auto_sms_enabled, auto_call_enabled,
+               notification_emails, webhook_url, rep_phone_number, twilio_from_number,
+               working_hours_start, working_hours_end,
+               sequence_enabled, sequence_config
+        FROM funnels
+        WHERE id = $1 AND org_id = $2
+        """,
+        funnel_id,
+        org_id,
+    )
+    if not row:
+        return None
+
+    schema_json = json.loads(row["schema_json"]) if isinstance(row["schema_json"], str) else row["schema_json"]
+    routing_rules = (
+        json.loads(row["routing_rules"])
+        if isinstance(row["routing_rules"], str)
+        else row["routing_rules"]
+    ) if row["routing_rules"] else None
+
+    return {
+        "id": row["id"],
+        "org_id": row["org_id"],
+        "slug": row["slug"],
+        "name": row["name"],
+        "schema_json": schema_json,
+        "languages": list(row["languages"]) if row["languages"] else ["en"],
+        "is_active": row["is_active"],
+        "created_at": row["created_at"],
+        "routing_rules": routing_rules,
+        "auto_email_enabled": row["auto_email_enabled"] or False,
+        "auto_sms_enabled": row["auto_sms_enabled"] or False,
+        "auto_call_enabled": row["auto_call_enabled"] or False,
+        "notification_emails": list(row["notification_emails"]) if row["notification_emails"] else None,
+        "webhook_url": row["webhook_url"],
+        "rep_phone_number": row["rep_phone_number"],
+        "twilio_from_number": row["twilio_from_number"],
+        "working_hours_start": row["working_hours_start"] or 9,
+        "working_hours_end": row["working_hours_end"] or 19,
+        "sequence_enabled": row["sequence_enabled"] or False,
+        "sequence_config": (
+            json.loads(row["sequence_config"])
+            if isinstance(row["sequence_config"], str)
+            else row["sequence_config"]
+        ) if row["sequence_config"] else None,
+    }
+
+
+async def update_funnel_settings(
+    conn: asyncpg.Connection, org_id: str, funnel_id: str, updates: dict
+) -> dict | None:
+    # Verify funnel belongs to org
+    exists = await conn.fetchval(
+        "SELECT id FROM funnels WHERE id = $1 AND org_id = $2",
+        funnel_id,
+        org_id,
+    )
+    if not exists:
+        return None
+
+    # Build dynamic SET clause from non-None updates
+    set_parts = []
+    params = []
+    idx = 1
+
+    column_map = {
+        "routing_rules": "routing_rules",
+        "auto_email_enabled": "auto_email_enabled",
+        "auto_sms_enabled": "auto_sms_enabled",
+        "auto_call_enabled": "auto_call_enabled",
+        "notification_emails": "notification_emails",
+        "webhook_url": "webhook_url",
+        "rep_phone_number": "rep_phone_number",
+        "twilio_from_number": "twilio_from_number",
+        "working_hours_start": "working_hours_start",
+        "working_hours_end": "working_hours_end",
+        "sequence_enabled": "sequence_enabled",
+        "sequence_config": "sequence_config",
+    }
+
+    for field, column in column_map.items():
+        if field in updates and updates[field] is not None:
+            value = updates[field]
+            if field in ("routing_rules", "sequence_config"):
+                set_parts.append(f"{column} = ${idx}::jsonb")
+                params.append(json.dumps(value))
+            else:
+                set_parts.append(f"{column} = ${idx}")
+                params.append(value)
+            idx += 1
+
+    if not set_parts:
+        return await get_funnel_detail(conn, org_id, funnel_id)
+
+    params.append(funnel_id)
+    params.append(org_id)
+
+    await conn.execute(
+        f"""
+        UPDATE funnels
+        SET {', '.join(set_parts)}
+        WHERE id = ${idx} AND org_id = ${idx + 1}
+        """,
+        *params,
+    )
+
+    return await get_funnel_detail(conn, org_id, funnel_id)
+
+
+async def get_lead_sequences(conn, lead_id: str) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT id, step, scheduled_at, sent_at, status, message
+        FROM lead_sequences
+        WHERE lead_id = $1
+        ORDER BY step
+        """,
+        lead_id,
+    )
+    return [dict(r) for r in rows]
