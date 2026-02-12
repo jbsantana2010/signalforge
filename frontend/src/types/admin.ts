@@ -110,3 +110,14 @@ export interface SequenceStep {
 export interface SequenceConfig {
   steps: SequenceStep[];
 }
+
+export interface OrgListItem {
+  id: string;
+  name: string;
+  slug: string;
+  display_name: string | null;
+  logo_url: string | null;
+  primary_color: string | null;
+  support_email: string | null;
+  created_at: string | null;
+}

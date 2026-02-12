@@ -166,3 +166,44 @@ python seed.py
 - `POST /public/twilio/rep-answer` — TwiML for rep call answer
 - `POST /public/twilio/rep-gather` — TwiML for rep digit input
 - `POST /public/twilio/status` — Status callback for calls/SMS
+
+## Sprint 4A: White-Label Foundation (Agency Layer)
+
+### What Changed
+
+- New `agencies` table with `id`, `name`, `created_at`
+- `orgs` table now has an optional `agency_id` FK to `agencies`
+- JWT tokens include `agency_id` claim when the user's org belongs to an agency
+- Seed creates a default agency ("WaveLaunch Marketing") and links the demo org
+
+### New Admin Endpoint
+
+- `GET /admin/agency/orgs` — Lists all orgs for the current user's agency (falls back to single org if no agency)
+
+### Migration
+
+Run `python seed.py` to apply `004_agency.sql` and seed the default agency.
+
+## Sprint 4B: Org Switcher + White-Label Branding
+
+### What Changed
+
+- New columns on `orgs`: `display_name`, `logo_url`, `primary_color`, `support_email` (migration `005_org_branding.sql`)
+- `GET /admin/agency/orgs` now returns branding fields per org
+- New `resolve_active_org_id` dependency in `auth.py` — reads `X-ORG-ID` header, validates against agency membership
+- Admin endpoints (`/admin/leads`, `/admin/funnels`) use resolved org_id so agency users can view data for any org in their agency
+- Frontend org switcher dropdown in admin nav (visible when agency has multiple orgs)
+- All authenticated API calls inject `X-ORG-ID` header from `localStorage`
+- Admin nav title and color adapt to the active org's branding
+
+### How Org Switching Works
+
+1. On login, frontend fetches `GET /admin/agency/orgs` to get available orgs
+2. Active org ID is stored in `localStorage` (`leadforge_active_org_id`)
+3. Every authenticated fetch includes `X-ORG-ID: <active_org_id>` header
+4. Backend `resolve_active_org_id` validates the header org belongs to the user's agency
+5. Non-agency users always see their home org (header is ignored)
+
+### Migration
+
+Run `python seed.py` to apply `005_org_branding.sql` and update seed data with branding fields.

@@ -10,6 +10,7 @@ from app.api.public import leads as public_leads
 from app.api.admin import auth as admin_auth
 from app.api.admin import leads as admin_leads
 from app.api.admin import funnels as admin_funnels
+from app.api.admin import agency as admin_agency
 
 
 @asynccontextmanager
@@ -34,6 +35,7 @@ app.include_router(public_leads.router, prefix="/public", tags=["Public Leads"])
 app.include_router(admin_auth.router, prefix="/admin", tags=["Admin Auth"])
 app.include_router(admin_leads.router, prefix="/admin", tags=["Admin Leads"])
 app.include_router(admin_funnels.router, prefix="/admin", tags=["Admin Funnels"])
+app.include_router(admin_agency.router, prefix="/admin", tags=["Admin Agency"])
 
 # Twilio webhook router (created by Agent B)
 try:

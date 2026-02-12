@@ -1,4 +1,15 @@
+import { getActiveOrgId } from '@/lib/auth';
+import type { OrgListItem } from '@/types/admin';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000';
+
+/** Build auth headers, injecting X-ORG-ID when an active org is set. */
+function authHeaders(token: string): Record<string, string> {
+  const h: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const orgId = getActiveOrgId();
+  if (orgId) h['X-ORG-ID'] = orgId;
+  return h;
+}
 
 export async function fetchFunnel(slug: string) {
   const res = await fetch(`${API_BASE}/public/funnels/${slug}`, {
@@ -54,7 +65,7 @@ export async function fetchLeads(token: string, params?: {
   if (params?.search) searchParams.set('search', params.search);
 
   const res = await fetch(`${API_BASE}/admin/leads?${searchParams}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch leads');
   return res.json();
@@ -62,7 +73,7 @@ export async function fetchLeads(token: string, params?: {
 
 export async function fetchLeadDetail(token: string, leadId: string) {
   const res = await fetch(`${API_BASE}/admin/leads/${leadId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch lead');
   return res.json();
@@ -70,7 +81,7 @@ export async function fetchLeadDetail(token: string, leadId: string) {
 
 export async function fetchAdminFunnels(token: string) {
   const res = await fetch(`${API_BASE}/admin/funnels`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch funnels');
   return res.json();
@@ -78,7 +89,7 @@ export async function fetchAdminFunnels(token: string) {
 
 export async function fetchFunnelDetail(token: string, funnelId: string) {
   const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch funnel');
   return res.json();
@@ -88,7 +99,7 @@ export async function updateFunnelSettings(token: string, funnelId: string, data
   const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
     method: 'PATCH',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...authHeaders(token),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(data),
@@ -99,8 +110,16 @@ export async function updateFunnelSettings(token: string, funnelId: string, data
 
 export async function fetchLeadSequences(token: string, leadId: string) {
   const res = await fetch(`${API_BASE}/admin/leads/${leadId}/sequences`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch sequences');
+  return res.json();
+}
+
+export async function fetchAgencyOrgs(token: string): Promise<{ orgs: OrgListItem[] }> {
+  const res = await fetch(`${API_BASE}/admin/agency/orgs`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Failed to fetch orgs');
   return res.json();
 }

@@ -80,6 +80,8 @@ Submit a lead from a funnel.
 
 All admin endpoints require `Authorization: Bearer <token>` header.
 
+**Org Switching (Sprint 4B):** Agency users may pass `X-ORG-ID: <uuid>` header on any admin endpoint to operate on a different org within their agency. The backend validates that the target org belongs to the user's agency. Non-agency users or missing header defaults to the home org from the JWT.
+
 ### POST /admin/auth/login
 
 **Request Body:**
@@ -332,6 +334,34 @@ Status callback for SMS and voice calls. Twilio posts status updates here.
 **Response 200:**
 ```json
 {"status": "ok"}
+```
+
+---
+
+## Agency Endpoints (JWT Required, Sprint 4A)
+
+### GET /admin/agency/orgs
+
+List all orgs belonging to the current user's agency. If the user has no agency, returns only their own org.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response 200:**
+```json
+{
+  "orgs": [
+    {
+      "id": "uuid",
+      "name": "SolarPrime Inc",
+      "slug": "solarprime",
+      "display_name": "SolarPrime",
+      "logo_url": null,
+      "primary_color": "#f59e0b",
+      "support_email": "support@solarprime.com",
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  ]
+}
 ```
 
 ---

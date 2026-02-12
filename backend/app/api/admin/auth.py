@@ -24,7 +24,13 @@ async def login(
             detail="Invalid email or password",
         )
 
-    token = create_access_token(
-        {"sub": str(user["id"]), "org_id": str(user["org_id"])}
+    # Look up agency_id from the user's org
+    org = await conn.fetchrow(
+        "SELECT agency_id FROM orgs WHERE id = $1", user["org_id"]
     )
+    token_data = {"sub": str(user["id"]), "org_id": str(user["org_id"])}
+    if org and org["agency_id"]:
+        token_data["agency_id"] = str(org["agency_id"])
+
+    token = create_access_token(token_data)
     return LoginResponse(access_token=token)

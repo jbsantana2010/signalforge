@@ -196,6 +196,24 @@ class LeadListResponse(BaseModel):
     per_page: int
 
 
+# --- Admin: Agency ---
+
+
+class AgencyOrgListItem(BaseModel):
+    id: UUID
+    name: str
+    slug: str
+    display_name: str | None = None
+    logo_url: str | None = None
+    primary_color: str | None = None
+    support_email: str | None = None
+    created_at: datetime | None = None
+
+
+class AgencyOrgsResponse(BaseModel):
+    orgs: list[AgencyOrgListItem]
+
+
 class LeadSequenceItem(BaseModel):
     id: UUID
     step: int

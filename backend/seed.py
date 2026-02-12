@@ -166,18 +166,42 @@ async def main():
                 await conn.execute(migration_sql)
         print("Migrations complete.")
 
+        # Create agency
+        print("Creating agency...")
+        agency_id = await conn.fetchval(
+            """
+            INSERT INTO agencies (name)
+            VALUES ($1)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            "WaveLaunch Marketing",
+        )
+        if not agency_id:
+            agency_id = await conn.fetchval(
+                "SELECT id FROM agencies WHERE name = $1", "WaveLaunch Marketing"
+            )
+        print(f"Agency created: {agency_id}")
+
         # Create org
         print("Creating org...")
         org_id = await conn.fetchval(
             """
-            INSERT INTO orgs (name, slug, branding)
-            VALUES ($1, $2, $3::jsonb)
-            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            INSERT INTO orgs (name, slug, branding, agency_id, display_name, primary_color, logo_url, support_email)
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, agency_id = EXCLUDED.agency_id,
+                display_name = EXCLUDED.display_name, primary_color = EXCLUDED.primary_color,
+                logo_url = EXCLUDED.logo_url, support_email = EXCLUDED.support_email
             RETURNING id
             """,
             "SolarPrime Inc",
             "solarprime",
             json.dumps({"primary_color": "#f59e0b", "logo_url": "/logo.svg"}),
+            agency_id,
+            "SolarPrime",
+            "#f59e0b",
+            None,
+            "support@solarprime.com",
         )
         print(f"Org created: {org_id}")
 
