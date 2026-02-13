@@ -102,6 +102,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   Onboard Client
                 </a>
               )}
+              <a
+                href="/admin/ops"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Ops
+              </a>
             </div>
             <div className="flex items-center space-x-4">
               {orgs.length > 1 && (

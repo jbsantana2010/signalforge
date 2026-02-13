@@ -116,11 +116,25 @@ export async function fetchLeadSequences(token: string, leadId: string) {
   return res.json();
 }
 
+export async function fetchLeadEvents(token: string, leadId: string) {
+  const res = await fetch(`${API_BASE}/admin/leads/${leadId}/events`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch events');
+  return res.json();
+}
+
 export async function fetchAgencyOrgs(token: string): Promise<{ orgs: OrgListItem[] }> {
   const res = await fetch(`${API_BASE}/admin/agency/orgs`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Failed to fetch orgs');
+  return res.json();
+}
+
+export async function fetchHealth() {
+  const res = await fetch(`${API_BASE}/health`);
+  if (!res.ok) throw new Error('Health check failed');
   return res.json();
 }
 

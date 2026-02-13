@@ -70,3 +70,40 @@ async def get_sequences(
     from app.services.lead_service import get_lead_sequences
     sequences = await get_lead_sequences(conn, str(lead_id))
     return sequences
+
+
+@router.get("/leads/{lead_id}/events")
+async def get_lead_events(
+    lead_id: UUID,
+    org_id: str = Depends(resolve_active_org_id),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Return automation events for a lead, ordered chronologically."""
+    # Verify lead belongs to org
+    lead = await conn.fetchval(
+        "SELECT id FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    import json
+    rows = await conn.fetch(
+        """SELECT event_type, status, detail_json, created_at
+           FROM automation_events
+           WHERE lead_id = $1 AND org_id = $2
+           ORDER BY created_at ASC""",
+        str(lead_id), org_id,
+    )
+    events = []
+    for r in rows:
+        detail = r["detail_json"]
+        if isinstance(detail, str):
+            detail = json.loads(detail)
+        events.append({
+            "event_type": r["event_type"],
+            "status": r["status"],
+            "detail_json": detail,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        })
+    return {"events": events}

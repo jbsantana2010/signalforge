@@ -1,10 +1,15 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import close_pool, create_pool
+from app.database import close_pool, create_pool, pool as _pool_ref
+import app.database as _db_mod
+
+logger = logging.getLogger("signalforge")
+
 from app.api.public import funnels as public_funnels
 from app.api.public import leads as public_leads
 from app.api.admin import auth as admin_auth
@@ -14,14 +19,46 @@ from app.api.admin import agency as admin_agency
 from app.api.admin import dashboard as admin_dashboard
 
 
+def _service_flags() -> dict:
+    return {
+        "twilio": bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN),
+        "smtp": bool(settings.SMTP_HOST and settings.SMTP_USER),
+        "claude": bool(settings.CLAUDE_API_KEY),
+    }
+
+
+def _log_env_summary(db_ok: bool):
+    flags = _service_flags()
+    lines = [
+        "",
+        "  SignalForge Environment Status",
+        "  ──────────────────────────────",
+        f"  Database:   {'OK' if db_ok else 'ERROR'}",
+        f"  Twilio:     {'ENABLED' if flags['twilio'] else 'DISABLED'}",
+        f"  SMTP:       {'ENABLED' if flags['smtp'] else 'DISABLED'}",
+        f"  Claude AI:  {'ENABLED' if flags['claude'] else 'DISABLED'}",
+        "",
+    ]
+    logger.info("\n".join(lines))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_pool()
+    # Verify DB connectivity and log environment
+    db_ok = False
+    try:
+        async with _db_mod.pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        db_ok = True
+    except Exception as exc:
+        logger.error(f"Database connectivity check failed: {exc}")
+    _log_env_summary(db_ok)
     yield
     await close_pool()
 
 
-app = FastAPI(title="LeadForge API", lifespan=lifespan)
+app = FastAPI(title="SignalForge API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,4 +86,21 @@ except ImportError:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """Enhanced readiness check with service status."""
+    db_status = "connected"
+    try:
+        async with _db_mod.pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+    except Exception:
+        db_status = "error"
+
+    flags = _service_flags()
+    status = "ok" if db_status == "connected" else "error"
+
+    return {
+        "status": status,
+        "database": db_status,
+        "twilio_configured": flags["twilio"],
+        "smtp_configured": flags["smtp"],
+        "claude_configured": flags["claude"],
+    }

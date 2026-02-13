@@ -338,6 +338,55 @@ Status callback for SMS and voice calls. Twilio posts status updates here.
 
 ---
 
+### GET /admin/leads/{lead_id}/events
+
+Automation event timeline for a lead, ordered chronologically.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Response 200:**
+```json
+{
+  "events": [
+    {
+      "event_type": "routed",
+      "status": "success",
+      "detail_json": {"tags": ["solar"], "priority": "high"},
+      "created_at": "2024-01-15T10:30:01Z"
+    },
+    {
+      "event_type": "ai_scored",
+      "status": "success",
+      "detail_json": {"score": 80, "mode": "deterministic"},
+      "created_at": "2024-01-15T10:30:02Z"
+    },
+    {
+      "event_type": "email_sent",
+      "status": "skipped_missing_config",
+      "detail_json": null,
+      "created_at": "2024-01-15T10:30:03Z"
+    },
+    {
+      "event_type": "sequence_scheduled",
+      "status": "success",
+      "detail_json": null,
+      "created_at": "2024-01-15T10:30:04Z"
+    }
+  ]
+}
+```
+
+**Event types:** `routed`, `ai_scored`, `email_sent`, `sms_sent`, `call_started`, `sequence_scheduled`
+
+**Statuses:** `success`, `sent`, `failed`, `skipped_missing_config`
+
+```bash
+curl http://localhost:8000/admin/leads/$LEAD_ID/events \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Agency Endpoints (JWT Required, Sprint 4A)
 
 ### GET /admin/agency/orgs

@@ -4,8 +4,15 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchLeadDetail, fetchLeadSequences } from '@/lib/api';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents } from '@/lib/api';
 import { LeadDetail, LeadSequenceItem } from '@/types/admin';
+
+interface AutomationEvent {
+  event_type: string;
+  status: string;
+  detail_json: Record<string, unknown> | null;
+  created_at: string;
+}
 
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
@@ -53,6 +60,7 @@ export default function LeadDetailPage() {
   const router = useRouter();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [sequences, setSequences] = useState<LeadSequenceItem[]>([]);
+  const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -69,6 +77,12 @@ export default function LeadDetailPage() {
           setSequences(seqs);
         } catch {
           // Sequences are optional, don't show error
+        }
+        try {
+          const ev = await fetchLeadEvents(token, params.id as string);
+          setEvents(ev.events ?? []);
+        } catch {
+          // Events are optional
         }
       } catch {
         setError('Failed to load lead details');
@@ -242,6 +256,21 @@ export default function LeadDetailPage() {
               </div>
             )}
 
+            {/* Automation Timeline */}
+            {events.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Automation Timeline</h2>
+                <div className="relative">
+                  <div className="absolute left-3 top-0 bottom-0 w-px bg-gray-200" />
+                  <div className="space-y-4">
+                    {events.map((ev, i) => (
+                      <TimelineEntry key={i} event={ev} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Answers */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Answers</h2>
@@ -331,5 +360,56 @@ export default function LeadDetailPage() {
         )}
       </div>
     </AdminLayout>
+  );
+}
+
+function TimelineEntry({ event }: { event: AutomationEvent }) {
+  const [open, setOpen] = useState(false);
+
+  const statusColor: Record<string, string> = {
+    success: 'bg-green-100 text-green-800',
+    sent: 'bg-green-100 text-green-800',
+    failed: 'bg-red-100 text-red-800',
+    skipped_missing_config: 'bg-yellow-100 text-yellow-800',
+  };
+
+  const dotColor: Record<string, string> = {
+    success: 'bg-green-500',
+    sent: 'bg-green-500',
+    failed: 'bg-red-500',
+    skipped_missing_config: 'bg-yellow-500',
+  };
+
+  const label = event.event_type.replace(/_/g, ' ');
+  const ts = new Date(event.created_at).toLocaleString();
+
+  return (
+    <div className="relative pl-8">
+      <div className={`absolute left-1.5 top-1.5 w-3 h-3 rounded-full ${dotColor[event.status] ?? 'bg-gray-400'}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-900 capitalize">{label}</span>
+            <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${statusColor[event.status] ?? 'bg-gray-100 text-gray-700'}`}>
+              {event.status}
+            </span>
+          </div>
+          <span className="text-xs text-gray-400">{ts}</span>
+        </div>
+        {event.detail_json && (
+          <button
+            onClick={() => setOpen(!open)}
+            className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+          >
+            {open ? 'Hide' : 'Details'}
+          </button>
+        )}
+      </div>
+      {open && event.detail_json && (
+        <pre className="mt-1 text-xs bg-gray-50 rounded p-2 overflow-x-auto text-gray-600">
+          {JSON.stringify(event.detail_json, null, 2)}
+        </pre>
+      )}
+    </div>
   );
 }

@@ -4,10 +4,12 @@ Automation orchestration: processes routing, AI scoring, and notifications for n
 
 import json
 import logging
+import os
 
 import asyncpg
 
 from app.services.ai_service import generate_ai_summary
+from app.services.event_service import log_event
 from app.services.notification_service import send_email, send_sms
 from app.services.routing_service import apply_routing_rules
 
@@ -41,6 +43,8 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                 logger.error(f"Automation: funnel {lead['funnel_id']} not found")
                 return
 
+            org_id = lead["org_id"]
+
             answers = (
                 json.loads(lead["answers_json"])
                 if isinstance(lead["answers_json"], str)
@@ -60,8 +64,13 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                 priority,
                 lead_id,
             )
+            await log_event(conn, org_id, lead_id, "routed", "success",
+                            {"tags": tags, "priority": priority})
 
-            # c) AI scoring
+            # c) AI scoring (falls back to deterministic stub if Claude not configured)
+            scoring_mode = "claude" if os.getenv("CLAUDE_API_KEY", "") else "deterministic"
+            if scoring_mode == "deterministic":
+                logger.info("Claude API not configured — using deterministic scoring for lead %s", lead_id)
             ai_score, ai_summary = await generate_ai_summary(answers)
             await conn.execute(
                 "UPDATE leads SET ai_score = $1, ai_summary = $2 WHERE id = $3",
@@ -69,6 +78,8 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                 ai_summary,
                 lead_id,
             )
+            await log_event(conn, org_id, lead_id, "ai_scored", "success",
+                            {"score": ai_score, "mode": scoring_mode})
 
             # Build dicts for notification services
             lead_dict = dict(lead)
@@ -83,20 +94,26 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
             # d) Email notification
             if funnel["auto_email_enabled"]:
                 email_status = await send_email(lead_dict, funnel_dict)
+                if email_status == "skipped_missing_config":
+                    logger.warning("SMTP not configured — skipping email for lead %s", lead_id)
                 await conn.execute(
                     "UPDATE leads SET email_status = $1 WHERE id = $2",
                     email_status,
                     lead_id,
                 )
+                await log_event(conn, org_id, lead_id, "email_sent", email_status)
 
             # e) SMS notification
             if funnel["auto_sms_enabled"]:
                 sms_status = await send_sms(lead_dict, funnel_dict)
+                if sms_status == "skipped_missing_config":
+                    logger.warning("Twilio not configured — skipping SMS for lead %s", lead_id)
                 await conn.execute(
                     "UPDATE leads SET sms_status = $1 WHERE id = $2",
                     sms_status,
                     lead_id,
                 )
+                await log_event(conn, org_id, lead_id, "sms_sent", sms_status)
 
             # f) Auto-call (call_service is created by Agent B)
             if funnel["auto_call_enabled"]:
@@ -109,21 +126,29 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                         call_status,
                         lead_id,
                     )
+                    await log_event(conn, org_id, lead_id, "call_started", call_status)
                 except ImportError:
-                    logger.warning("call_service not available yet, skipping auto-call")
+                    logger.warning("Twilio call_service not available — skipping auto-call for lead %s", lead_id)
+                    await log_event(conn, org_id, lead_id, "call_started", "skipped_missing_config")
                 except Exception as e:
                     logger.error(f"Auto-call failed: {e}")
                     await conn.execute(
                         "UPDATE leads SET call_status = 'failed' WHERE id = $1",
                         lead_id,
                     )
+                    await log_event(conn, org_id, lead_id, "call_started", "failed",
+                                    {"error": str(e)})
 
             # g) Schedule follow-up sequences
             try:
                 from app.services.sequence_service import schedule_sequences
                 await schedule_sequences(lead_id, funnel_dict, conn)
+                if funnel_dict.get("sequence_enabled"):
+                    await log_event(conn, org_id, lead_id, "sequence_scheduled", "success")
             except Exception as e:
                 logger.error(f"Sequence scheduling failed: {e}")
+                await log_event(conn, org_id, lead_id, "sequence_scheduled", "failed",
+                                {"error": str(e)})
 
         # h) Process any due sequences (outside conn block)
         try:
