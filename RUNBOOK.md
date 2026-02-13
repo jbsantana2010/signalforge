@@ -207,3 +207,66 @@ Run `python seed.py` to apply `004_agency.sql` and seed the default agency.
 ### Migration
 
 Run `python seed.py` to apply `005_org_branding.sql` and update seed data with branding fields.
+
+## Sprint 4C: Agency Client Onboarding
+
+### What Changed
+
+- **POST /admin/agency/orgs** — Create a new client org under the current user's agency
+- **POST /admin/agency/orgs/{org_id}/funnels** — Create a funnel for a target org with template defaults
+- **Onboarding UI** at `/admin/agency/onboard` — Single-page form to create org + funnel in one flow
+- "Onboard Client" nav link in admin layout (visible for agency users)
+- After onboarding, the new org becomes the active org and user is redirected to funnels
+
+### Onboarding Flow
+
+1. Agency admin clicks "Onboard Client" in the admin nav
+2. Fills in client org details (name, slug, branding) and funnel details (name, slug, sequence toggle)
+3. On submit:
+   - `POST /admin/agency/orgs` creates the org
+   - `POST /admin/agency/orgs/{org_id}/funnels` creates a default 3-step funnel with routing rules and sequence config
+   - Active org switches to the new org
+   - Redirects to `/admin/funnels`
+4. The org switcher dropdown now includes the new org
+
+### Template Defaults (when schema_json omitted)
+
+- **3-step form:** Service (solar/roofing/other) → Zip + Name → Phone + Contact Time
+- **Routing rules:** service==solar → tag "solar", priority "high"
+- **Sequence config (if enabled):** Day 0 welcome, Day 1 check-in, Day 3 follow-up
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/agency/orgs | JWT (agency) | Create client org |
+| POST | /admin/agency/orgs/{org_id}/funnels | JWT (agency) | Create funnel for org |
+
+## Sprint 4D: Revenue Intelligence Dashboard
+
+### What Changed
+
+- Migration `006_org_metrics.sql` adds `avg_deal_value` and `close_rate_percent` to `orgs`
+- New `analytics_service.py` computes dashboard metrics from lead data
+- `GET /admin/dashboard` returns KPIs (total leads, 7-day leads, AI distribution, response time, revenue estimate)
+- `PATCH /admin/org/settings` updates deal value and close rate for the active org
+- Dashboard page at `/admin/dashboard` with KPI cards and AI distribution bars
+- Revenue Settings section added to funnel settings page
+- "Dashboard" nav link added to admin layout
+
+### Revenue Formula
+
+```
+estimated_revenue = total_leads × (close_rate_percent / 100) × avg_deal_value
+```
+
+### Migration
+
+Run `python seed.py` to apply `006_org_metrics.sql` and seed default values (deal value: $5000, close rate: 10%).
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/dashboard | JWT + X-ORG-ID | Dashboard metrics |
+| PATCH | /admin/org/settings | JWT + X-ORG-ID | Update deal value & close rate |

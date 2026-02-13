@@ -221,3 +221,47 @@ class LeadSequenceItem(BaseModel):
     sent_at: datetime | None = None
     status: str
     message: str | None = None
+
+
+# --- Admin: Agency Onboarding (Sprint 4C) ---
+
+
+class CreateOrgRequest(BaseModel):
+    name: str
+    slug: str
+    display_name: str | None = None
+    logo_url: str | None = None
+    primary_color: str | None = None
+    support_email: str | None = None
+
+
+class CreateOrgResponse(BaseModel):
+    id: UUID
+    name: str
+    slug: str
+    display_name: str | None = None
+    logo_url: str | None = None
+    primary_color: str | None = None
+    support_email: str | None = None
+
+
+class CreateFunnelRequest(BaseModel):
+    name: str
+    slug: str
+    schema_json: dict | None = None
+    language_default: str = "en"
+    enable_sequences: bool = True
+    enable_email: bool = False
+    enable_sms: bool = False
+    enable_call: bool = False
+
+
+class CreateFunnelResponse(BaseModel):
+    id: UUID
+    slug: str
+    org_id: UUID
+
+
+class OrgMetricsUpdateRequest(BaseModel):
+    avg_deal_value: float | None = None
+    close_rate_percent: float | None = None

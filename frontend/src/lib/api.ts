@@ -123,3 +123,55 @@ export async function fetchAgencyOrgs(token: string): Promise<{ orgs: OrgListIte
   if (!res.ok) throw new Error('Failed to fetch orgs');
   return res.json();
 }
+
+export async function fetchDashboard(token: string) {
+  const res = await fetch(`${API_BASE}/admin/dashboard`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch dashboard');
+  return res.json();
+}
+
+export async function updateOrgSettings(token: string, data: {
+  avg_deal_value?: number; close_rate_percent?: number;
+}) {
+  const res = await fetch(`${API_BASE}/admin/org/settings`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update org settings');
+  return res.json();
+}
+
+export async function createAgencyOrg(token: string, data: {
+  name: string; slug: string; display_name?: string;
+  logo_url?: string; primary_color?: string; support_email?: string;
+}) {
+  const res = await fetch(`${API_BASE}/admin/agency/orgs`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to create org');
+  }
+  return res.json();
+}
+
+export async function createOrgFunnel(token: string, orgId: string, data: {
+  name: string; slug: string; enable_sequences?: boolean;
+  enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;
+}) {
+  const res = await fetch(`${API_BASE}/admin/agency/orgs/${orgId}/funnels`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to create funnel');
+  }
+  return res.json();
+}

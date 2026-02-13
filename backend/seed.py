@@ -187,11 +187,12 @@ async def main():
         print("Creating org...")
         org_id = await conn.fetchval(
             """
-            INSERT INTO orgs (name, slug, branding, agency_id, display_name, primary_color, logo_url, support_email)
-            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
+            INSERT INTO orgs (name, slug, branding, agency_id, display_name, primary_color, logo_url, support_email, avg_deal_value, close_rate_percent)
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, agency_id = EXCLUDED.agency_id,
                 display_name = EXCLUDED.display_name, primary_color = EXCLUDED.primary_color,
-                logo_url = EXCLUDED.logo_url, support_email = EXCLUDED.support_email
+                logo_url = EXCLUDED.logo_url, support_email = EXCLUDED.support_email,
+                avg_deal_value = EXCLUDED.avg_deal_value, close_rate_percent = EXCLUDED.close_rate_percent
             RETURNING id
             """,
             "SolarPrime Inc",
@@ -202,6 +203,8 @@ async def main():
             "#f59e0b",
             None,
             "support@solarprime.com",
+            5000,   # avg_deal_value
+            10,     # close_rate_percent
         )
         print(f"Org created: {org_id}")
 

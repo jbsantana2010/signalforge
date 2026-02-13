@@ -366,6 +366,150 @@ List all orgs belonging to the current user's agency. If the user has no agency,
 
 ---
 
+### POST /admin/agency/orgs
+
+Create a new client org under the current user's agency.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Request Body:**
+```json
+{
+  "name": "Acme Solar",
+  "slug": "acme-solar",
+  "display_name": "Acme Solar Co",
+  "primary_color": "#10b981",
+  "support_email": "support@acmesolar.com",
+  "logo_url": "https://example.com/logo.png"
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": "uuid",
+  "name": "Acme Solar",
+  "slug": "acme-solar",
+  "display_name": "Acme Solar Co",
+  "logo_url": "https://example.com/logo.png",
+  "primary_color": "#10b981",
+  "support_email": "support@acmesolar.com"
+}
+```
+
+**403:** User has no agency_id.
+**409:** Slug already in use.
+
+```bash
+# Example curl
+curl -X POST http://localhost:8000/admin/agency/orgs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme Solar","slug":"acme-solar","display_name":"Acme"}'
+```
+
+---
+
+### POST /admin/agency/orgs/{org_id}/funnels
+
+Create a funnel for a target org (agency admin only). If `schema_json` is omitted, a 3-step template (Service, Contact, Phone) is used with default routing rules and sequence config.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Request Body:**
+```json
+{
+  "name": "Main Lead Funnel",
+  "slug": "main-funnel",
+  "enable_sequences": true,
+  "enable_email": false,
+  "enable_sms": false,
+  "enable_call": false
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": "uuid",
+  "slug": "main-funnel",
+  "org_id": "uuid"
+}
+```
+
+**403:** User has no agency_id or org doesn't belong to their agency.
+**409:** Funnel slug already exists for this org.
+
+```bash
+# Example curl
+curl -X POST http://localhost:8000/admin/agency/orgs/$ORG_ID/funnels \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Main Funnel","slug":"main-funnel","enable_sequences":true}'
+```
+
+---
+
+### GET /admin/dashboard
+
+Revenue intelligence dashboard metrics for the active org.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Response 200:**
+```json
+{
+  "metrics": {
+    "total_leads": 5,
+    "leads_last_7_days": 2,
+    "avg_response_seconds": 3600.0,
+    "contacted_percent": 20.0,
+    "ai_hot_count": 1,
+    "ai_warm_count": 2,
+    "ai_cold_count": 1,
+    "call_connect_rate": 0,
+    "estimated_revenue": 2500.0,
+    "avg_deal_value": 5000,
+    "close_rate_percent": 10
+  }
+}
+```
+
+```bash
+curl http://localhost:8000/admin/dashboard \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### PATCH /admin/org/settings
+
+Update revenue metrics (avg deal value, close rate) for the active org.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body (all fields optional):**
+```json
+{
+  "avg_deal_value": 7500,
+  "close_rate_percent": 15
+}
+```
+
+**Response 200:**
+```json
+{"ok": true}
+```
+
+```bash
+curl -X PATCH http://localhost:8000/admin/org/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"avg_deal_value": 7500, "close_rate_percent": 15}'
+```
+
+---
+
 ## Updated Response Schemas (Sprint 2)
 
 ### GET /admin/leads – LeadListItem

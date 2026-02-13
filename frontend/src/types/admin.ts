@@ -111,6 +111,20 @@ export interface SequenceConfig {
   steps: SequenceStep[];
 }
 
+export interface DashboardMetrics {
+  total_leads: number;
+  leads_last_7_days: number;
+  avg_response_seconds: number | null;
+  contacted_percent: number;
+  ai_hot_count: number;
+  ai_warm_count: number;
+  ai_cold_count: number;
+  call_connect_rate: number;
+  estimated_revenue: number;
+  avg_deal_value: number;
+  close_rate_percent: number;
+}
+
 export interface OrgListItem {
   id: string;
   name: string;

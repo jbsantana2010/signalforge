@@ -77,6 +77,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </a>
               )}
               <a
+                href="/admin/dashboard"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Dashboard
+              </a>
+              <a
                 href="/admin/leads"
                 className="text-gray-700 hover:text-blue-600 font-medium"
               >
@@ -88,6 +94,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Funnels
               </a>
+              {orgs.length > 0 && (
+                <a
+                  href="/admin/agency/onboard"
+                  className="text-gray-700 hover:text-blue-600 font-medium"
+                >
+                  Onboard Client
+                </a>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               {orgs.length > 1 && (

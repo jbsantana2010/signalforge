@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchFunnelDetail, updateFunnelSettings } from '@/lib/api';
+import { fetchFunnelDetail, updateFunnelSettings, fetchDashboard, updateOrgSettings } from '@/lib/api';
 import { FunnelDetail, FunnelUpdateRequest, RoutingRule } from '@/types/admin';
 
 export default function FunnelSettingsPage() {
@@ -28,6 +28,8 @@ export default function FunnelSettingsPage() {
   const [routingRules, setRoutingRules] = useState<RoutingRule[]>([]);
   const [sequenceEnabled, setSequenceEnabled] = useState(false);
   const [sequenceConfig, setSequenceConfig] = useState('');
+  const [avgDealValue, setAvgDealValue] = useState(0);
+  const [closeRate, setCloseRate] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -59,6 +61,11 @@ export default function FunnelSettingsPage() {
                 ]
               }, null, 2)
         );
+        // Load org metrics too
+        fetchDashboard(token).then((d) => {
+          setAvgDealValue(d.metrics.avg_deal_value ?? 0);
+          setCloseRate(d.metrics.close_rate_percent ?? 0);
+        }).catch(() => {});
       } catch {
         setError('Failed to load funnel settings');
       } finally {
@@ -126,6 +133,7 @@ export default function FunnelSettingsPage() {
 
     try {
       await updateFunnelSettings(token, params.id as string, payload as unknown as Record<string, unknown>);
+      await updateOrgSettings(token, { avg_deal_value: avgDealValue, close_rate_percent: closeRate });
       setSuccess('Settings saved successfully');
     } catch {
       setError('Failed to save settings');
@@ -415,6 +423,41 @@ export default function FunnelSettingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Revenue Settings (Org-level) */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Revenue Settings</h2>
+              <p className="text-xs text-gray-500 mb-4">These values apply to the entire org and are used for estimated revenue on the dashboard.</p>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Avg Deal Value ($)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100}
+                    value={avgDealValue}
+                    onChange={(e) => setAvgDealValue(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Close Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={closeRate}
+                    onChange={(e) => setCloseRate(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Save */}
