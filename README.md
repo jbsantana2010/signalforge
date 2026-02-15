@@ -13,6 +13,7 @@ AI-powered lead response and follow-up system built for agencies and high-ticket
 | **SMS Sequences** | Multi-step scheduled follow-ups (Day 0, Day 1, Day 3 drip campaigns) |
 | **Call Bridge** | Twilio-powered rep-to-lead phone connection with working hours enforcement |
 | **Multi-Org White Label** | Agency manages multiple client orgs with isolated data, branding, and funnels |
+| **AI Campaign Strategy** | One-click AI-generated ad strategy: angles, hooks, offers, targeting, and complete ad variations |
 | **Campaign Attribution** | Track ad campaigns via UTM parameters with leads, avg AI score, estimated revenue, CPL, and ROAS |
 | **Revenue Intelligence** | Dashboard with KPIs, AI lead distribution, and estimated revenue projections |
 | **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
@@ -162,6 +163,7 @@ All external integrations (Twilio, SMTP, Claude) gracefully degrade when not con
 | `GET` | `/admin/leads/{id}` | JWT | Lead detail |
 | `GET` | `/admin/funnels` | JWT | List funnels |
 | `GET`/`PATCH` | `/admin/funnels/{id}` | JWT | Funnel detail / settings |
+| `POST` | `/admin/ai/ad-strategy` | JWT | Generate AI campaign strategy |
 | `GET` | `/admin/campaigns` | JWT | List campaigns with attribution metrics |
 | `POST` | `/admin/campaigns` | JWT | Create campaign |
 | `PATCH` | `/admin/campaigns/{id}` | JWT | Update campaign ad spend |
@@ -181,6 +183,7 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | Core Platform | Lead capture, AI scoring, automation engine | Done |
 | White Label | Agency layer, org switcher, branding, onboarding | Done |
 | Revenue Intelligence | Dashboard, KPIs, estimated revenue | Done |
+| AI Campaign Strategy | One-click ad strategy generation with Claude | Done |
 | Campaign Attribution | UTM-based campaign tracking with ROAS | Done |
 | Industry Templates | Vertical-specific profiles for onboarding | Done |
 | Pilot Ops | Health checks, status page, deployment runbook | Done |

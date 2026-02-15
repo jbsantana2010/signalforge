@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { removeToken, isAuthenticated, getToken, getActiveOrgId, setActiveOrgId } from '@/lib/auth';
+import { removeToken, isAuthenticated, getToken, getActiveOrgId, setActiveOrgId, consumeOrgWasReset } from '@/lib/auth';
 import { fetchAgencyOrgs } from '@/lib/api';
 import type { OrgListItem } from '@/types/admin';
 
@@ -11,6 +11,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [checked, setChecked] = useState(false);
   const [orgs, setOrgs] = useState<OrgListItem[]>([]);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -18,17 +19,32 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       return;
     }
     setChecked(true);
-    setActiveOrgIdState(getActiveOrgId());
+
+    // Check if org was auto-reset by 403 recovery
+    if (consumeOrgWasReset()) {
+      setResetNotice(true);
+      setTimeout(() => setResetNotice(false), 6000);
+    }
 
     const token = getToken();
     if (token) {
       fetchAgencyOrgs(token)
         .then((data) => {
           setOrgs(data.orgs);
-          // If no active org set yet, default to first
-          if (!getActiveOrgId() && data.orgs.length > 0) {
-            setActiveOrgId(data.orgs[0].id);
-            setActiveOrgIdState(data.orgs[0].id);
+          const currentOrgId = getActiveOrgId();
+          const orgIds = data.orgs.map((o: OrgListItem) => o.id);
+          // If no active org, or active org not in list, reset to first
+          if ((!currentOrgId || !orgIds.includes(currentOrgId)) && data.orgs.length > 0) {
+            const firstId = data.orgs[0].id;
+            setActiveOrgId(firstId);
+            setActiveOrgIdState(firstId);
+            if (currentOrgId && !orgIds.includes(currentOrgId)) {
+              // Stale org was in localStorage — show notice
+              setResetNotice(true);
+              setTimeout(() => setResetNotice(false), 6000);
+            }
+          } else {
+            setActiveOrgIdState(currentOrgId);
           }
         })
         .catch(() => {});
@@ -100,6 +116,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Campaigns
               </a>
+              <a
+                href="/admin/ai-strategy"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                AI Strategy
+              </a>
               {orgs.length > 0 && (
                 <a
                   href="/admin/agency/onboard"
@@ -140,6 +162,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </nav>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {resetNotice && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded text-sm">
+            Active org was reset because data changed. You are now viewing the default org.
+          </div>
+        )}
         {children}
       </main>
     </div>

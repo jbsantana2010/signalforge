@@ -167,6 +167,79 @@ python seed.py
 - `POST /public/twilio/rep-gather` — TwiML for rep digit input
 - `POST /public/twilio/status` — Status callback for calls/SMS
 
+## Sprint 5C: Stale Org ID Auto-Recovery
+
+### What Changed
+
+- `getActiveOrgId()` in `auth.ts` now validates stored values are proper UUIDs; rejects `""`, `"null"`, `"undefined"`, and non-UUID strings
+- New `isValidUuid()`, `clearActiveOrgId()`, `markOrgWasReset()`, and `consumeOrgWasReset()` helpers in `auth.ts`
+- `authHeaders()` in `api.ts` only injects `X-ORG-ID` when the stored value passes UUID validation
+- New `authFetch()` wrapper: if any authenticated request returns 403 and an `X-ORG-ID` was sent, it clears the stale org, flags the reset, and retries once without the header
+- `AdminLayout` bootstraps the active org from the agency org list on every load — if the stored org is missing/invalid/not in the list, it resets to the first available org
+- Amber banner "Active org was reset because data changed" auto-hides after 6 seconds
+- Backend 403 detail message improved to: `"Invalid X-ORG-ID for this agency/org. Clear active org and retry."`
+
+### After DB Reseed
+
+The UI auto-recovers after `python seed.py` resets the database:
+
+1. Old org UUIDs in `localStorage` no longer exist in the database
+2. The next authenticated request gets a 403
+3. `authFetch` catches the 403, clears the stale org, and retries without `X-ORG-ID`
+4. `AdminLayout` detects the missing org and sets it to the first org from `/admin/agency/orgs`
+5. An amber notice briefly appears to inform the user
+6. No manual `localStorage` clearing required
+
+---
+
+## Sprint 5B: AI Campaign Strategy Engine
+
+### What Changed
+
+- New endpoint `POST /admin/ai/ad-strategy` generates a complete campaign kit
+- AI service (`ai_service.py`) extended with `generate_ad_strategy()` function
+- Claude prompt uses org industry, deal value, close rate, and scoring config
+- Deterministic stubs for marine_dealer, equipment_dealer, and generic industries
+- Frontend page at `/admin/ai-strategy` with goal/budget inputs and collapsible output sections
+- "AI Strategy" nav link added to admin layout
+- Safe mode badge shown when Claude API key is not configured
+
+### Strategy Output Structure
+
+```json
+{
+  "angles": ["4-5 strategic angles"],
+  "hooks": ["6-8 attention-grabbing hooks"],
+  "offers": ["3-4 offer suggestions"],
+  "targeting": ["4 audience targeting suggestions"],
+  "ads": [
+    {"primary_text": "...", "headline": "...", "cta": "..."}
+  ],
+  "mode": "claude|stub"
+}
+```
+
+### Usage
+
+1. Navigate to `/admin/ai-strategy`
+2. Select a campaign goal (sales, traffic, financing)
+3. Enter monthly budget
+4. Optionally add notes for context
+5. Click "Generate Campaign Strategy"
+6. Copy individual hooks, ads, or entire ad blocks
+
+### Safe Mode
+
+When `CLAUDE_API_KEY` is not configured, the system returns industry-specific deterministic stubs. A yellow badge indicates safe mode. Generation still works — just returns pre-built templates.
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/ai/ad-strategy | JWT + X-ORG-ID | Generate ad campaign strategy |
+
+---
+
 ## Sprint 5A: Campaign Attribution Engine
 
 ### What Changed

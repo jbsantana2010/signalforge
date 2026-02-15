@@ -76,6 +76,6 @@ async def resolve_active_org_id(
     if not target:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Org not accessible",
+            detail="Invalid X-ORG-ID for this agency/org. Clear active org and retry.",
         )
     return x_org_id

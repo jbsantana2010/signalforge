@@ -1,14 +1,29 @@
-import { getActiveOrgId } from '@/lib/auth';
+import { getActiveOrgId, clearActiveOrgId, markOrgWasReset, isValidUuid } from '@/lib/auth';
 import type { OrgListItem } from '@/types/admin';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000';
 
-/** Build auth headers, injecting X-ORG-ID when an active org is set. */
+/** Build auth headers, injecting X-ORG-ID only when a valid UUID is set. */
 function authHeaders(token: string): Record<string, string> {
   const h: Record<string, string> = { Authorization: `Bearer ${token}` };
   const orgId = getActiveOrgId();
-  if (orgId) h['X-ORG-ID'] = orgId;
+  if (orgId && isValidUuid(orgId)) h['X-ORG-ID'] = orgId;
   return h;
+}
+
+/** Fetch with 403 auto-recovery: if a 403 occurs and X-ORG-ID was sent,
+ *  clear the stale org, mark it for the UI, and retry once without it. */
+async function authFetch(url: string, init: RequestInit & { headers: Record<string, string> }): Promise<Response> {
+  const hadOrgHeader = 'X-ORG-ID' in init.headers;
+  const res = await fetch(url, init);
+  if (res.status === 403 && hadOrgHeader) {
+    clearActiveOrgId();
+    markOrgWasReset();
+    const retryHeaders = { ...init.headers };
+    delete retryHeaders['X-ORG-ID'];
+    return fetch(url, { ...init, headers: retryHeaders });
+  }
+  return res;
 }
 
 export async function fetchFunnel(slug: string) {
@@ -64,7 +79,7 @@ export async function fetchLeads(token: string, params?: {
   if (params?.language) searchParams.set('language', params.language);
   if (params?.search) searchParams.set('search', params.search);
 
-  const res = await fetch(`${API_BASE}/admin/leads?${searchParams}`, {
+  const res = await authFetch(`${API_BASE}/admin/leads?${searchParams}`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch leads');
@@ -72,7 +87,7 @@ export async function fetchLeads(token: string, params?: {
 }
 
 export async function fetchLeadDetail(token: string, leadId: string) {
-  const res = await fetch(`${API_BASE}/admin/leads/${leadId}`, {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch lead');
@@ -80,7 +95,7 @@ export async function fetchLeadDetail(token: string, leadId: string) {
 }
 
 export async function fetchAdminFunnels(token: string) {
-  const res = await fetch(`${API_BASE}/admin/funnels`, {
+  const res = await authFetch(`${API_BASE}/admin/funnels`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch funnels');
@@ -88,7 +103,7 @@ export async function fetchAdminFunnels(token: string) {
 }
 
 export async function fetchFunnelDetail(token: string, funnelId: string) {
-  const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
+  const res = await authFetch(`${API_BASE}/admin/funnels/${funnelId}`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch funnel');
@@ -96,7 +111,7 @@ export async function fetchFunnelDetail(token: string, funnelId: string) {
 }
 
 export async function updateFunnelSettings(token: string, funnelId: string, data: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE}/admin/funnels/${funnelId}`, {
+  const res = await authFetch(`${API_BASE}/admin/funnels/${funnelId}`, {
     method: 'PATCH',
     headers: {
       ...authHeaders(token),
@@ -109,7 +124,7 @@ export async function updateFunnelSettings(token: string, funnelId: string, data
 }
 
 export async function fetchLeadSequences(token: string, leadId: string) {
-  const res = await fetch(`${API_BASE}/admin/leads/${leadId}/sequences`, {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/sequences`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch sequences');
@@ -117,7 +132,7 @@ export async function fetchLeadSequences(token: string, leadId: string) {
 }
 
 export async function fetchLeadEvents(token: string, leadId: string) {
-  const res = await fetch(`${API_BASE}/admin/leads/${leadId}/events`, {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/events`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch events');
@@ -139,7 +154,7 @@ export async function fetchHealth() {
 }
 
 export async function fetchDashboard(token: string) {
-  const res = await fetch(`${API_BASE}/admin/dashboard`, {
+  const res = await authFetch(`${API_BASE}/admin/dashboard`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch dashboard');
@@ -149,7 +164,7 @@ export async function fetchDashboard(token: string) {
 export async function updateOrgSettings(token: string, data: {
   avg_deal_value?: number; close_rate_percent?: number;
 }) {
-  const res = await fetch(`${API_BASE}/admin/org/settings`, {
+  const res = await authFetch(`${API_BASE}/admin/org/settings`, {
     method: 'PATCH',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -159,7 +174,7 @@ export async function updateOrgSettings(token: string, data: {
 }
 
 export async function fetchIndustries(token: string) {
-  const res = await fetch(`${API_BASE}/admin/industries`, {
+  const res = await authFetch(`${API_BASE}/admin/industries`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch industries');
@@ -167,7 +182,7 @@ export async function fetchIndustries(token: string) {
 }
 
 export async function fetchIndustryTemplate(token: string, slug: string) {
-  const res = await fetch(`${API_BASE}/admin/industries/${encodeURIComponent(slug)}/template`, {
+  const res = await authFetch(`${API_BASE}/admin/industries/${encodeURIComponent(slug)}/template`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch industry template');
@@ -175,7 +190,7 @@ export async function fetchIndustryTemplate(token: string, slug: string) {
 }
 
 export async function fetchCampaigns(token: string) {
-  const res = await fetch(`${API_BASE}/admin/campaigns`, {
+  const res = await authFetch(`${API_BASE}/admin/campaigns`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch campaigns');
@@ -185,7 +200,7 @@ export async function fetchCampaigns(token: string) {
 export async function createCampaign(token: string, data: {
   campaign_name: string; source: string; utm_campaign: string; ad_spend?: number;
 }) {
-  const res = await fetch(`${API_BASE}/admin/campaigns`, {
+  const res = await authFetch(`${API_BASE}/admin/campaigns`, {
     method: 'POST',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -198,7 +213,7 @@ export async function createCampaign(token: string, data: {
 }
 
 export async function updateCampaignSpend(token: string, campaignId: string, ad_spend: number) {
-  const res = await fetch(`${API_BASE}/admin/campaigns/${campaignId}`, {
+  const res = await authFetch(`${API_BASE}/admin/campaigns/${campaignId}`, {
     method: 'PATCH',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify({ ad_spend }),
@@ -207,12 +222,24 @@ export async function updateCampaignSpend(token: string, campaignId: string, ad_
   return res.json();
 }
 
+export async function generateAdStrategy(token: string, data: {
+  goal: string; monthly_budget: number; notes?: string;
+}) {
+  const res = await authFetch(`${API_BASE}/admin/ai/ad-strategy`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to generate strategy');
+  return res.json();
+}
+
 export async function createAgencyOrg(token: string, data: {
   name: string; slug: string; display_name?: string;
   logo_url?: string; primary_color?: string; support_email?: string;
   industry_slug?: string;
 }) {
-  const res = await fetch(`${API_BASE}/admin/agency/orgs`, {
+  const res = await authFetch(`${API_BASE}/admin/agency/orgs`, {
     method: 'POST',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -228,7 +255,7 @@ export async function createOrgFunnel(token: string, orgId: string, data: {
   name: string; slug: string; enable_sequences?: boolean;
   enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;
 }) {
-  const res = await fetch(`${API_BASE}/admin/agency/orgs/${orgId}/funnels`, {
+  const res = await authFetch(`${API_BASE}/admin/agency/orgs/${orgId}/funnels`, {
     method: 'POST',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
