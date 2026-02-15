@@ -233,6 +233,7 @@ class CreateOrgRequest(BaseModel):
     logo_url: str | None = None
     primary_color: str | None = None
     support_email: str | None = None
+    industry_slug: str | None = None
 
 
 class CreateOrgResponse(BaseModel):
@@ -265,3 +266,46 @@ class CreateFunnelResponse(BaseModel):
 class OrgMetricsUpdateRequest(BaseModel):
     avg_deal_value: float | None = None
     close_rate_percent: float | None = None
+
+
+# --- Admin: Industries ---
+
+
+class IndustryListItem(BaseModel):
+    slug: str
+    name: str
+    description: str | None = None
+
+
+class IndustryTemplateDetail(BaseModel):
+    slug: str
+    name: str
+    description: str | None = None
+    default_funnel_json: dict
+    default_sequence_json: dict
+    default_scoring_json: dict
+    default_avg_deal_value: float
+    default_close_rate_percent: float
+
+
+# --- Admin: Campaigns ---
+
+
+class CreateCampaignRequest(BaseModel):
+    campaign_name: str
+    source: str
+    utm_campaign: str
+    ad_spend: float = 0
+
+
+class UpdateCampaignRequest(BaseModel):
+    ad_spend: float
+
+
+class CampaignListItem(BaseModel):
+    id: UUID
+    campaign_name: str
+    source: str
+    utm_campaign: str
+    ad_spend: float
+    created_at: datetime

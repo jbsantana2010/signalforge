@@ -92,6 +92,239 @@ FUNNEL_SCHEMA = {
 }
 
 
+INDUSTRY_DATA = [
+    {
+        "slug": "generic",
+        "name": "Generic",
+        "description": "Default industry profile for general-purpose lead capture",
+        "template": {
+            "default_funnel_json": {
+                "languages": ["en"],
+                "steps": [
+                    {
+                        "id": "service",
+                        "title": {"en": "What service do you need?"},
+                        "fields": [
+                            {
+                                "key": "service",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Service"},
+                                "options": [
+                                    {"value": "solar", "label": {"en": "Solar Installation"}},
+                                    {"value": "roofing", "label": {"en": "Roofing"}},
+                                    {"value": "other", "label": {"en": "Other"}},
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "id": "contact_info",
+                        "title": {"en": "Your Information"},
+                        "fields": [
+                            {"key": "zip_code", "type": "text", "required": True, "label": {"en": "Zip Code"}},
+                            {"key": "name", "type": "text", "required": True, "label": {"en": "Full Name"}},
+                        ],
+                    },
+                    {
+                        "id": "phone_info",
+                        "title": {"en": "Contact Preferences"},
+                        "fields": [
+                            {"key": "phone", "type": "tel", "required": True, "label": {"en": "Phone Number"}},
+                            {"key": "contact_time", "type": "select", "required": False, "label": {"en": "Best time to call"}, "options": [
+                                {"value": "morning", "label": {"en": "Morning"}},
+                                {"value": "afternoon", "label": {"en": "Afternoon"}},
+                                {"value": "evening", "label": {"en": "Evening"}},
+                            ]},
+                        ],
+                    },
+                ],
+            },
+            "default_sequence_json": {
+                "steps": [
+                    {"delay_minutes": 0, "message": "Thanks for your request, {{name}}! We'll be in touch shortly."},
+                    {"delay_minutes": 1440, "message": "Hi {{name}}, just checking in on your inquiry. Any questions?"},
+                    {"delay_minutes": 4320, "message": "Hi {{name}}, we'd love to help — reply to schedule a call!"},
+                ],
+            },
+            "default_scoring_json": {
+                "rubric": "Score leads 0-100 based on intent signals, budget indicators, and timeline urgency.",
+            },
+            "default_avg_deal_value": 5000,
+            "default_close_rate_percent": 10,
+        },
+    },
+    {
+        "slug": "marine_dealer",
+        "name": "Marine Dealer",
+        "description": "Boat dealerships and marine sales organizations",
+        "template": {
+            "default_funnel_json": {
+                "languages": ["en"],
+                "steps": [
+                    {
+                        "id": "interest",
+                        "title": {"en": "What are you looking for?"},
+                        "fields": [
+                            {
+                                "key": "interested_model",
+                                "type": "text",
+                                "required": True,
+                                "label": {"en": "Boat Model / Type"},
+                            },
+                            {
+                                "key": "financing_interest",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Financing Interest"},
+                                "options": [
+                                    {"value": "yes", "label": {"en": "Yes, I need financing"}},
+                                    {"value": "no", "label": {"en": "No, paying cash"}},
+                                    {"value": "unsure", "label": {"en": "Not sure yet"}},
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "id": "details",
+                        "title": {"en": "Additional Details"},
+                        "fields": [
+                            {
+                                "key": "trade_in",
+                                "type": "select",
+                                "required": False,
+                                "label": {"en": "Do you have a trade-in?"},
+                                "options": [
+                                    {"value": "yes", "label": {"en": "Yes"}},
+                                    {"value": "no", "label": {"en": "No"}},
+                                ],
+                            },
+                            {
+                                "key": "timeframe",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Purchase Timeframe"},
+                                "options": [
+                                    {"value": "immediate", "label": {"en": "Ready now"}},
+                                    {"value": "1_month", "label": {"en": "Within 1 month"}},
+                                    {"value": "3_months", "label": {"en": "Within 3 months"}},
+                                    {"value": "browsing", "label": {"en": "Just browsing"}},
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "id": "contact",
+                        "title": {"en": "Your Information"},
+                        "fields": [
+                            {"key": "name", "type": "text", "required": True, "label": {"en": "Full Name"}},
+                            {"key": "phone", "type": "tel", "required": True, "label": {"en": "Phone Number"}},
+                            {"key": "zip_code", "type": "text", "required": True, "label": {"en": "Zip Code"}},
+                        ],
+                    },
+                ],
+            },
+            "default_sequence_json": {
+                "steps": [
+                    {"delay_minutes": 0, "message": "Thanks for your interest, {{name}}! Our marine sales team will be in touch shortly."},
+                    {"delay_minutes": 1440, "message": "Hi {{name}}, following up on your boat inquiry. Would you like to schedule a showing?"},
+                    {"delay_minutes": 4320, "message": "Hi {{name}}, just checking in — we have great inventory available. Reply to connect!"},
+                ],
+            },
+            "default_scoring_json": {
+                "rubric": "Score marine leads 0-100. High scores for: immediate timeframe, financing interest, trade-in (repeat buyer signal). Lower scores for 'just browsing' with no financing interest.",
+            },
+            "default_avg_deal_value": 12000,
+            "default_close_rate_percent": 12,
+        },
+    },
+    {
+        "slug": "equipment_dealer",
+        "name": "Equipment Dealer",
+        "description": "Heavy equipment and machinery dealerships",
+        "template": {
+            "default_funnel_json": {
+                "languages": ["en"],
+                "steps": [
+                    {
+                        "id": "equipment",
+                        "title": {"en": "Equipment Needs"},
+                        "fields": [
+                            {
+                                "key": "equipment_type",
+                                "type": "text",
+                                "required": True,
+                                "label": {"en": "Equipment Type / Model"},
+                            },
+                            {
+                                "key": "job_size",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Job Size"},
+                                "options": [
+                                    {"value": "small", "label": {"en": "Small (residential)"}},
+                                    {"value": "medium", "label": {"en": "Medium (commercial)"}},
+                                    {"value": "large", "label": {"en": "Large (industrial)"}},
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "id": "purchase",
+                        "title": {"en": "Purchase Details"},
+                        "fields": [
+                            {
+                                "key": "rental_vs_purchase",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Rental or Purchase?"},
+                                "options": [
+                                    {"value": "purchase", "label": {"en": "Purchase"}},
+                                    {"value": "rental", "label": {"en": "Rental"}},
+                                    {"value": "lease", "label": {"en": "Lease"}},
+                                ],
+                            },
+                            {
+                                "key": "timeframe",
+                                "type": "select",
+                                "required": True,
+                                "label": {"en": "Timeframe"},
+                                "options": [
+                                    {"value": "immediate", "label": {"en": "Immediate need"}},
+                                    {"value": "1_month", "label": {"en": "Within 1 month"}},
+                                    {"value": "3_months", "label": {"en": "Within 3 months"}},
+                                    {"value": "planning", "label": {"en": "Just planning"}},
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "id": "contact",
+                        "title": {"en": "Your Information"},
+                        "fields": [
+                            {"key": "name", "type": "text", "required": True, "label": {"en": "Full Name"}},
+                            {"key": "phone", "type": "tel", "required": True, "label": {"en": "Phone Number"}},
+                            {"key": "zip_code", "type": "text", "required": True, "label": {"en": "Zip Code"}},
+                        ],
+                    },
+                ],
+            },
+            "default_sequence_json": {
+                "steps": [
+                    {"delay_minutes": 0, "message": "Thanks {{name}}! Our equipment specialist will reach out shortly."},
+                    {"delay_minutes": 1440, "message": "Hi {{name}}, following up on your equipment inquiry. Ready to discuss options?"},
+                    {"delay_minutes": 4320, "message": "Hi {{name}}, we have equipment available for your needs. Reply to get a quote!"},
+                ],
+            },
+            "default_scoring_json": {
+                "rubric": "Score equipment leads 0-100. High scores for: purchase intent (vs rental), immediate timeframe, large job size. Lower scores for planning-stage rental inquiries.",
+            },
+            "default_avg_deal_value": 45000,
+            "default_close_rate_percent": 8,
+        },
+    },
+]
+
 SAMPLE_LEADS = [
     {
         "language": "en",
@@ -292,6 +525,54 @@ async def main():
         )
         print("Funnel automation settings updated.")
 
+        # Create industries and templates
+        print("Creating industries and templates...")
+        for ind in INDUSTRY_DATA:
+            industry_id = await conn.fetchval(
+                """
+                INSERT INTO industries (slug, name, description)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description
+                RETURNING id
+                """,
+                ind["slug"],
+                ind["name"],
+                ind["description"],
+            )
+            tmpl = ind["template"]
+            await conn.execute(
+                """
+                INSERT INTO industry_templates
+                    (industry_id, default_funnel_json, default_sequence_json,
+                     default_scoring_json, default_avg_deal_value, default_close_rate_percent)
+                VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5, $6)
+                ON CONFLICT (industry_id) DO UPDATE SET
+                    default_funnel_json = EXCLUDED.default_funnel_json,
+                    default_sequence_json = EXCLUDED.default_sequence_json,
+                    default_scoring_json = EXCLUDED.default_scoring_json,
+                    default_avg_deal_value = EXCLUDED.default_avg_deal_value,
+                    default_close_rate_percent = EXCLUDED.default_close_rate_percent
+                """,
+                industry_id,
+                json.dumps(tmpl["default_funnel_json"]),
+                json.dumps(tmpl["default_sequence_json"]),
+                json.dumps(tmpl["default_scoring_json"]),
+                tmpl["default_avg_deal_value"],
+                tmpl["default_close_rate_percent"],
+            )
+            print(f"  Industry '{ind['slug']}' ready.")
+
+        # Set demo org to generic industry if not already set
+        generic_industry_id = await conn.fetchval(
+            "SELECT id FROM industries WHERE slug = 'generic'"
+        )
+        await conn.execute(
+            "UPDATE orgs SET industry_id = $1 WHERE id = $2 AND industry_id IS NULL",
+            generic_industry_id,
+            org_id,
+        )
+        print("Industries seeded. Demo org set to 'generic'.")
+
         # Create sample leads
         print("Creating sample leads...")
         for i, lead in enumerate(SAMPLE_LEADS):
@@ -307,6 +588,25 @@ async def main():
                 json.dumps(lead["source"]),
             )
             print(f"  Lead {i + 1} created: {lead['answers']['name']}")
+
+        # Create sample campaign (matches "solar-summer" utm_campaign on seeded lead #1)
+        print("Creating sample campaign...")
+        await conn.execute(
+            """
+            INSERT INTO campaigns (org_id, source, campaign_name, utm_campaign, ad_spend)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (org_id, utm_campaign) DO UPDATE SET
+                ad_spend = EXCLUDED.ad_spend,
+                campaign_name = EXCLUDED.campaign_name,
+                source = EXCLUDED.source
+            """,
+            org_id,
+            "google",
+            "Summer Solar Push",
+            "solar-summer",
+            250.00,
+        )
+        print("  Campaign 'Summer Solar Push' (utm: solar-summer, spend: $250)")
 
         print("\nSeed complete!")
         print("  Login: admin@solarprime.com / admin123")

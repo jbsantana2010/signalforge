@@ -1,5 +1,7 @@
 """Analytics service – computes dashboard metrics from lead data."""
 
+import json
+
 import asyncpg
 
 
@@ -80,3 +82,60 @@ async def get_org_dashboard_metrics(conn: asyncpg.Connection, org_id: str) -> di
         "avg_deal_value": avg_deal_value,
         "close_rate_percent": close_rate,
     }
+
+
+async def get_campaign_metrics(conn: asyncpg.Connection, org_id: str) -> dict:
+    """Return per-campaign attribution metrics for an org."""
+
+    # Org-level revenue settings
+    org_row = await conn.fetchrow(
+        "SELECT avg_deal_value, close_rate_percent FROM orgs WHERE id = $1",
+        org_id,
+    )
+    avg_deal_value = float(org_row["avg_deal_value"] or 0) if org_row else 0
+    close_rate = float(org_row["close_rate_percent"] or 0) if org_row else 0
+
+    rows = await conn.fetch(
+        """
+        SELECT
+            c.id,
+            c.campaign_name,
+            c.source,
+            c.utm_campaign,
+            c.ad_spend,
+            COUNT(l.id)                         AS leads,
+            COALESCE(AVG(l.ai_score), 0)        AS avg_ai_score
+        FROM campaigns c
+        LEFT JOIN leads l
+            ON l.org_id = c.org_id
+           AND l.source_json->>'utm_campaign' = c.utm_campaign
+        WHERE c.org_id = $1
+        GROUP BY c.id, c.campaign_name, c.source, c.utm_campaign, c.ad_spend
+        ORDER BY c.created_at DESC
+        """,
+        org_id,
+    )
+
+    campaigns = []
+    for r in rows:
+        leads = int(r["leads"])
+        ad_spend = float(r["ad_spend"])
+        avg_ai = round(float(r["avg_ai_score"]), 1)
+        est_revenue = round(leads * (close_rate / 100) * avg_deal_value, 2)
+        cpl = round(ad_spend / leads, 2) if leads > 0 else None
+        roas = round(est_revenue / ad_spend, 2) if ad_spend > 0 else None
+
+        campaigns.append({
+            "id": str(r["id"]),
+            "campaign_name": r["campaign_name"],
+            "source": r["source"],
+            "utm_campaign": r["utm_campaign"],
+            "leads": leads,
+            "avg_ai_score": avg_ai,
+            "estimated_revenue": est_revenue,
+            "ad_spend": ad_spend,
+            "cost_per_lead": cpl,
+            "roas": roas,
+        })
+
+    return {"campaigns": campaigns}

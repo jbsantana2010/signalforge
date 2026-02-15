@@ -1,10 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getToken, setActiveOrgId } from '@/lib/auth';
-import { createAgencyOrg, createOrgFunnel } from '@/lib/api';
+import { createAgencyOrg, createOrgFunnel, fetchIndustries, fetchIndustryTemplate } from '@/lib/api';
 import AdminLayout from '@/components/admin/AdminLayout';
+
+interface Industry {
+  slug: string;
+  name: string;
+  description: string | null;
+}
+
+interface IndustryTemplate {
+  slug: string;
+  name: string;
+  default_funnel_json: Record<string, unknown>;
+  default_sequence_json: Record<string, unknown>;
+  default_scoring_json: Record<string, unknown>;
+  default_avg_deal_value: number;
+  default_close_rate_percent: number;
+}
 
 export default function OnboardClientPage() {
   const router = useRouter();
@@ -18,12 +34,37 @@ export default function OnboardClientPage() {
     funnel_name: '',
     funnel_slug: '',
     enable_sequences: true,
+    industry_slug: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [templatePreview, setTemplatePreview] = useState<IndustryTemplate | null>(null);
 
   const set = (key: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Load industries on mount
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    fetchIndustries(token)
+      .then((data) => setIndustries(data))
+      .catch(() => {});
+  }, []);
+
+  // Load template preview when industry changes
+  useEffect(() => {
+    if (!form.industry_slug) {
+      setTemplatePreview(null);
+      return;
+    }
+    const token = getToken();
+    if (!token) return;
+    fetchIndustryTemplate(token, form.industry_slug)
+      .then((data) => setTemplatePreview(data))
+      .catch(() => setTemplatePreview(null));
+  }, [form.industry_slug]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +87,7 @@ export default function OnboardClientPage() {
         primary_color: form.primary_color || undefined,
         support_email: form.support_email || undefined,
         logo_url: form.logo_url || undefined,
+        industry_slug: form.industry_slug || undefined,
       });
 
       // 2) Create the default funnel
@@ -67,6 +109,17 @@ export default function OnboardClientPage() {
     }
   };
 
+  // Extract funnel field keys from template for preview
+  const funnelFieldKeys: string[] = [];
+  if (templatePreview?.default_funnel_json) {
+    const funnel = templatePreview.default_funnel_json as { steps?: { fields?: { key: string }[] }[] };
+    for (const step of funnel.steps ?? []) {
+      for (const field of step.fields ?? []) {
+        funnelFieldKeys.push(field.key);
+      }
+    }
+  }
+
   return (
     <AdminLayout>
       <div className="max-w-xl mx-auto">
@@ -77,6 +130,45 @@ export default function OnboardClientPage() {
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Industry section */}
+          <fieldset className="border border-gray-200 rounded-lg p-4 space-y-3">
+            <legend className="text-sm font-semibold text-gray-600 px-1">Industry Profile</legend>
+            <div>
+              <label className="block text-sm font-medium mb-1">Industry</label>
+              <select
+                value={form.industry_slug}
+                onChange={(e) => set('industry_slug', e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">None (generic defaults)</option>
+                {industries.map((ind) => (
+                  <option key={ind.slug} value={ind.slug}>
+                    {ind.name}
+                  </option>
+                ))}
+              </select>
+              {industries.find((i) => i.slug === form.industry_slug)?.description && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {industries.find((i) => i.slug === form.industry_slug)?.description}
+                </p>
+              )}
+            </div>
+
+            {templatePreview && (
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm space-y-2">
+                <p className="font-medium text-blue-800">Template Preview</p>
+                <div className="text-blue-700 space-y-1">
+                  <p>Avg Deal Value: <span className="font-mono">${templatePreview.default_avg_deal_value.toLocaleString()}</span></p>
+                  <p>Close Rate: <span className="font-mono">{templatePreview.default_close_rate_percent}%</span></p>
+                  {funnelFieldKeys.length > 0 && (
+                    <p>Funnel Fields: <span className="font-mono">{funnelFieldKeys.join(', ')}</span></p>
+                  )}
+                </div>
+                <p className="text-xs text-blue-600">This will pre-configure funnel + sequences + scoring</p>
+              </div>
+            )}
+          </fieldset>
+
           {/* Org section */}
           <fieldset className="border border-gray-200 rounded-lg p-4 space-y-3">
             <legend className="text-sm font-semibold text-gray-600 px-1">Organization</legend>

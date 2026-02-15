@@ -71,7 +71,15 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
             scoring_mode = "claude" if os.getenv("CLAUDE_API_KEY", "") else "deterministic"
             if scoring_mode == "deterministic":
                 logger.info("Claude API not configured — using deterministic scoring for lead %s", lead_id)
-            ai_score, ai_summary = await generate_ai_summary(answers)
+
+            # Load org-level scoring_config (from industry template) if present
+            scoring_config = await conn.fetchval(
+                "SELECT scoring_config FROM orgs WHERE id = $1", org_id
+            )
+            if isinstance(scoring_config, str):
+                scoring_config = json.loads(scoring_config)
+
+            ai_score, ai_summary = await generate_ai_summary(answers, scoring_config)
             await conn.execute(
                 "UPDATE leads SET ai_score = $1, ai_summary = $2 WHERE id = $3",
                 ai_score,

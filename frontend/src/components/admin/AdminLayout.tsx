@@ -94,6 +94,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Funnels
               </a>
+              <a
+                href="/admin/campaigns"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Campaigns
+              </a>
               {orgs.length > 0 && (
                 <a
                   href="/admin/agency/onboard"

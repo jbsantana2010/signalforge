@@ -8,21 +8,22 @@ import os
 import httpx
 
 
-async def generate_ai_summary(answers: dict) -> tuple[int, str]:
+async def generate_ai_summary(answers: dict, scoring_config: dict | None = None) -> tuple[int, str]:
     """
     If CLAUDE_API_KEY env var set: call Claude API, parse {"score": int, "summary": "..."}
     If not set: deterministic stub based on service type.
+    scoring_config is an optional org-level rubric from industry templates.
     Returns: (score, summary)
     """
     api_key = os.getenv("CLAUDE_API_KEY", "")
 
     if api_key:
-        return await _call_claude(api_key, answers)
+        return await _call_claude(api_key, answers, scoring_config)
 
-    return _deterministic_stub(answers)
+    return _deterministic_stub(answers, scoring_config)
 
 
-def _deterministic_stub(answers: dict) -> tuple[int, str]:
+def _deterministic_stub(answers: dict, scoring_config: dict | None = None) -> tuple[int, str]:
     service = answers.get("service", "")
     name = answers.get("name", "Unknown")
     zip_code = answers.get("zip_code", "N/A")
@@ -35,6 +36,14 @@ def _deterministic_stub(answers: dict) -> tuple[int, str]:
     else:
         score = 60
 
+    # Adjust score based on scoring_config hints (if present)
+    if scoring_config:
+        timeframe = answers.get("timeframe", "")
+        if timeframe == "immediate":
+            score = min(100, score + 10)
+        elif timeframe in ("browsing", "planning"):
+            score = max(0, score - 10)
+
     summary = (
         f"Lead from {name} in zip {zip_code}. "
         f"Interested in: {service or 'unknown'}. "
@@ -44,12 +53,19 @@ def _deterministic_stub(answers: dict) -> tuple[int, str]:
     return score, summary
 
 
-async def _call_claude(api_key: str, answers: dict) -> tuple[int, str]:
+async def _call_claude(api_key: str, answers: dict, scoring_config: dict | None = None) -> tuple[int, str]:
+    scoring_instruction = ""
+    if scoring_config:
+        scoring_instruction = (
+            f"\n\nUse this scoring rubric as guidance: {json.dumps(scoring_config)}\n"
+        )
+
     prompt = (
         "You are a lead scoring assistant. Given the following lead form answers, "
         "return a JSON object with exactly two keys: \"score\" (integer 0-100 indicating "
         "lead quality) and \"summary\" (2-3 sentence summary of the lead).\n\n"
-        f"Answers: {json.dumps(answers)}\n\n"
+        f"Answers: {json.dumps(answers)}\n"
+        f"{scoring_instruction}\n"
         "Respond with ONLY valid JSON, no other text."
     )
 
@@ -75,4 +91,4 @@ async def _call_claude(api_key: str, answers: dict) -> tuple[int, str]:
             return int(result["score"]), str(result["summary"])
     except Exception:
         # Fall back to deterministic stub on any failure
-        return _deterministic_stub(answers)
+        return _deterministic_stub(answers, scoring_config)

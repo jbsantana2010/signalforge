@@ -167,6 +167,78 @@ python seed.py
 - `POST /public/twilio/rep-gather` — TwiML for rep digit input
 - `POST /public/twilio/status` — Status callback for calls/SMS
 
+## Sprint 5A: Campaign Attribution Engine
+
+### What Changed
+
+- New `campaigns` table (migration `009_campaigns.sql`) with `(org_id, utm_campaign)` unique constraint
+- `GET /admin/campaigns` returns per-campaign metrics: leads, avg AI score, estimated revenue, CPL, ROAS
+- `POST /admin/campaigns` creates a campaign with source, name, utm_campaign key, and optional ad_spend
+- `PATCH /admin/campaigns/{id}` updates ad_spend for ROAS recalculation
+- Campaign attribution works by matching `lead.source_json->>'utm_campaign'` against `campaign.utm_campaign`
+- Frontend page at `/admin/campaigns` with create form and metrics table (ROAS color-coded)
+- "Campaigns" nav link added to admin layout
+- Seed includes a sample campaign ("Summer Solar Push", utm: solar-summer, spend: $250)
+
+### How It Works
+
+1. Create a campaign in the UI or via API with a `utm_campaign` key
+2. Use that key in your funnel links: `https://yoursite.com/f/solar-prime?utm_campaign=solar-summer`
+3. Leads submitted with matching UTM params are automatically attributed
+4. Enter ad spend manually — CPL and ROAS calculate automatically
+5. No ad platform APIs required
+
+### Revenue Attribution Formula
+
+```
+estimated_revenue = leads × (close_rate_percent / 100) × avg_deal_value
+cost_per_lead = ad_spend / leads
+roas = estimated_revenue / ad_spend
+```
+
+### Migration
+
+Run `python seed.py` to apply `009_campaigns.sql` and seed a sample campaign.
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/campaigns | JWT + X-ORG-ID | Campaign metrics |
+| POST | /admin/campaigns | JWT + X-ORG-ID | Create campaign |
+| PATCH | /admin/campaigns/{id} | JWT + X-ORG-ID | Update ad spend |
+
+---
+
+## Industry Templates
+
+### What Changed
+
+- New `industries` and `industry_templates` tables (migration `008_industries.sql`)
+- `orgs` table gains `industry_id` FK and `scoring_config` JSONB column
+- Three built-in industries seeded: `generic`, `marine_dealer`, `equipment_dealer`
+- Each industry has a template defining: default funnel schema, sequence config, scoring rubric, avg deal value, close rate
+- Org creation (`POST /admin/agency/orgs`) accepts optional `industry_slug` to pre-configure the org
+- Funnel creation uses the org's industry template for schema and sequence defaults
+- AI scoring reads `scoring_config` from the org when present
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/industries | JWT | List all industries |
+| GET | /admin/industries/{slug}/template | JWT | Preview industry template |
+
+### Onboarding Flow
+
+The onboarding UI now includes an industry dropdown. Selecting an industry shows a preview of the template defaults (deal value, close rate, funnel fields). The selected industry is sent as `industry_slug` when creating the org.
+
+### Migration
+
+Run `python seed.py` to apply `008_industries.sql` and seed industry data. Existing orgs are backfilled to `generic`.
+
+---
+
 ## Sprint 4A: White-Label Foundation (Agency Layer)
 
 ### What Changed

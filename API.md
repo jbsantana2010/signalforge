@@ -387,6 +387,176 @@ curl http://localhost:8000/admin/leads/$LEAD_ID/events \
 
 ---
 
+## Campaign Endpoints (JWT Required)
+
+All campaign endpoints use `resolve_active_org_id` — they respect the `X-ORG-ID` header for agency org switching.
+
+### GET /admin/campaigns
+
+List campaigns with attribution metrics for the active org. Sorted by creation date descending.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Response 200:**
+```json
+{
+  "campaigns": [
+    {
+      "id": "uuid",
+      "campaign_name": "Summer Solar Push",
+      "source": "google",
+      "utm_campaign": "solar-summer",
+      "leads": 3,
+      "avg_ai_score": 76.7,
+      "estimated_revenue": 1500.0,
+      "ad_spend": 250.0,
+      "cost_per_lead": 83.33,
+      "roas": 6.0
+    }
+  ]
+}
+```
+
+Derived fields:
+- `estimated_revenue` = leads x (close_rate_percent / 100) x avg_deal_value
+- `cost_per_lead` = ad_spend / leads (null if leads == 0)
+- `roas` = estimated_revenue / ad_spend (null if ad_spend == 0)
+
+```bash
+curl http://localhost:8000/admin/campaigns \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### POST /admin/campaigns
+
+Create a new campaign for the active org.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body:**
+```json
+{
+  "campaign_name": "Summer Solar Push",
+  "source": "google",
+  "utm_campaign": "solar-summer",
+  "ad_spend": 250.00
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| campaign_name | Yes | Human-readable campaign name |
+| source | Yes | Platform: facebook, google, tiktok, manual |
+| utm_campaign | Yes | UTM campaign key (matched against lead source_json) |
+| ad_spend | No | Total ad spend in dollars (default: 0) |
+
+**Response 201:**
+```json
+{
+  "id": "uuid",
+  "campaign_name": "Summer Solar Push",
+  "source": "google",
+  "utm_campaign": "solar-summer",
+  "ad_spend": 250.0,
+  "created_at": "2024-01-15T10:00:00Z"
+}
+```
+
+**409:** Campaign with this utm_campaign already exists for this org.
+
+```bash
+curl -X POST http://localhost:8000/admin/campaigns \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"campaign_name":"Summer Solar Push","source":"google","utm_campaign":"solar-summer","ad_spend":250}'
+```
+
+---
+
+### PATCH /admin/campaigns/{campaign_id}
+
+Update the ad spend for a campaign.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body:**
+```json
+{
+  "ad_spend": 500.00
+}
+```
+
+**Response 200:**
+```json
+{"ok": true}
+```
+
+**404:** Campaign not found or doesn't belong to this org.
+
+```bash
+curl -X PATCH http://localhost:8000/admin/campaigns/$CAMPAIGN_ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ad_spend": 500}'
+```
+
+---
+
+## Industry Endpoints (JWT Required)
+
+### GET /admin/industries
+
+List all available industry profiles.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response 200:**
+```json
+[
+  {"slug": "generic", "name": "Generic", "description": "Default industry profile for general-purpose lead capture"},
+  {"slug": "marine_dealer", "name": "Marine Dealer", "description": "Boat dealerships and marine sales organizations"},
+  {"slug": "equipment_dealer", "name": "Equipment Dealer", "description": "Heavy equipment and machinery dealerships"}
+]
+```
+
+```bash
+curl http://localhost:8000/admin/industries \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### GET /admin/industries/{slug}/template
+
+Preview the default template for an industry, including funnel schema, sequence config, scoring rubric, and revenue defaults.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response 200:**
+```json
+{
+  "slug": "marine_dealer",
+  "name": "Marine Dealer",
+  "description": "Boat dealerships and marine sales organizations",
+  "default_funnel_json": {"languages": ["en"], "steps": [...]},
+  "default_sequence_json": {"steps": [...]},
+  "default_scoring_json": {"rubric": "Score marine leads 0-100..."},
+  "default_avg_deal_value": 12000,
+  "default_close_rate_percent": 12
+}
+```
+
+**404:** Industry or template not found.
+
+```bash
+curl http://localhost:8000/admin/industries/marine_dealer/template \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Agency Endpoints (JWT Required, Sprint 4A)
 
 ### GET /admin/agency/orgs
@@ -429,9 +599,12 @@ Create a new client org under the current user's agency.
   "display_name": "Acme Solar Co",
   "primary_color": "#10b981",
   "support_email": "support@acmesolar.com",
-  "logo_url": "https://example.com/logo.png"
+  "logo_url": "https://example.com/logo.png",
+  "industry_slug": "marine_dealer"
 }
 ```
+
+The optional `industry_slug` field selects an industry profile. When provided, the org is pre-configured with the industry's default avg deal value, close rate, and scoring config. The funnel created via `/admin/agency/orgs/{org_id}/funnels` will use the industry's template schema and sequence config. If omitted or invalid, falls back to `generic`.
 
 **Response 201:**
 ```json
@@ -454,7 +627,7 @@ Create a new client org under the current user's agency.
 curl -X POST http://localhost:8000/admin/agency/orgs \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Acme Solar","slug":"acme-solar","display_name":"Acme"}'
+  -d '{"name":"Acme Solar","slug":"acme-solar","display_name":"Acme","industry_slug":"marine_dealer"}'
 ```
 
 ---

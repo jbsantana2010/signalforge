@@ -133,9 +133,39 @@ async def create_agency_org(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already in use")
 
+    # Resolve industry template (fall back to generic)
+    industry_slug = body.industry_slug or "generic"
+    tmpl = await conn.fetchrow(
+        """
+        SELECT i.id AS industry_id, t.default_avg_deal_value, t.default_close_rate_percent,
+               t.default_scoring_json
+        FROM industries i
+        LEFT JOIN industry_templates t ON t.industry_id = i.id
+        WHERE i.slug = $1
+        """,
+        industry_slug,
+    )
+    if not tmpl:
+        # Fall back to generic if slug not found
+        tmpl = await conn.fetchrow(
+            """
+            SELECT i.id AS industry_id, t.default_avg_deal_value, t.default_close_rate_percent,
+                   t.default_scoring_json
+            FROM industries i
+            LEFT JOIN industry_templates t ON t.industry_id = i.id
+            WHERE i.slug = 'generic'
+            """,
+        )
+
+    industry_id = tmpl["industry_id"] if tmpl else None
+    avg_deal = float(tmpl["default_avg_deal_value"]) if tmpl and tmpl["default_avg_deal_value"] else 5000
+    close_rate = float(tmpl["default_close_rate_percent"]) if tmpl and tmpl["default_close_rate_percent"] else 10
+    scoring_config = json.dumps(tmpl["default_scoring_json"]) if tmpl and tmpl["default_scoring_json"] else None
+
     row = await conn.fetchrow(
-        """INSERT INTO orgs (name, slug, agency_id, display_name, logo_url, primary_color, support_email)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """INSERT INTO orgs (name, slug, agency_id, display_name, logo_url, primary_color,
+                             support_email, industry_id, avg_deal_value, close_rate_percent, scoring_config)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
            RETURNING id, name, slug, display_name, logo_url, primary_color, support_email""",
         body.name,
         body.slug,
@@ -144,6 +174,10 @@ async def create_agency_org(
         body.logo_url,
         body.primary_color,
         body.support_email,
+        industry_id,
+        avg_deal,
+        close_rate,
+        scoring_config,
     )
     return dict(row)
 
@@ -177,9 +211,35 @@ async def create_org_funnel(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Funnel slug already exists for this org")
 
-    schema = body.schema_json if body.schema_json else {**_DEFAULT_SCHEMA, "slug": body.slug}
+    # Load industry template for funnel/sequence defaults if available
+    industry_tmpl = await conn.fetchrow(
+        """
+        SELECT t.default_funnel_json, t.default_sequence_json
+        FROM orgs o
+        JOIN industry_templates t ON t.industry_id = o.industry_id
+        WHERE o.id = $1
+        """,
+        org_id,
+    )
+
+    if body.schema_json:
+        schema = body.schema_json
+    elif industry_tmpl and industry_tmpl["default_funnel_json"]:
+        schema = dict(industry_tmpl["default_funnel_json"])
+        schema["slug"] = body.slug
+    else:
+        schema = {**_DEFAULT_SCHEMA, "slug": body.slug}
+
     routing = json.dumps(_DEFAULT_ROUTING)
-    seq_config = json.dumps(_DEFAULT_SEQUENCE) if body.enable_sequences else None
+
+    if body.enable_sequences:
+        if industry_tmpl and industry_tmpl["default_sequence_json"]:
+            seq_config = json.dumps(dict(industry_tmpl["default_sequence_json"]))
+        else:
+            seq_config = json.dumps(_DEFAULT_SEQUENCE)
+    else:
+        seq_config = None
+
     languages = schema.get("languages", [body.language_default])
 
     row = await conn.fetchrow(

@@ -158,9 +158,59 @@ export async function updateOrgSettings(token: string, data: {
   return res.json();
 }
 
+export async function fetchIndustries(token: string) {
+  const res = await fetch(`${API_BASE}/admin/industries`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch industries');
+  return res.json();
+}
+
+export async function fetchIndustryTemplate(token: string, slug: string) {
+  const res = await fetch(`${API_BASE}/admin/industries/${encodeURIComponent(slug)}/template`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch industry template');
+  return res.json();
+}
+
+export async function fetchCampaigns(token: string) {
+  const res = await fetch(`${API_BASE}/admin/campaigns`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch campaigns');
+  return res.json();
+}
+
+export async function createCampaign(token: string, data: {
+  campaign_name: string; source: string; utm_campaign: string; ad_spend?: number;
+}) {
+  const res = await fetch(`${API_BASE}/admin/campaigns`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to create campaign');
+  }
+  return res.json();
+}
+
+export async function updateCampaignSpend(token: string, campaignId: string, ad_spend: number) {
+  const res = await fetch(`${API_BASE}/admin/campaigns/${campaignId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ad_spend }),
+  });
+  if (!res.ok) throw new Error('Failed to update campaign');
+  return res.json();
+}
+
 export async function createAgencyOrg(token: string, data: {
   name: string; slug: string; display_name?: string;
   logo_url?: string; primary_color?: string; support_email?: string;
+  industry_slug?: string;
 }) {
   const res = await fetch(`${API_BASE}/admin/agency/orgs`, {
     method: 'POST',

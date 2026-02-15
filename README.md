@@ -13,16 +13,20 @@ AI-powered lead response and follow-up system built for agencies and high-ticket
 | **SMS Sequences** | Multi-step scheduled follow-ups (Day 0, Day 1, Day 3 drip campaigns) |
 | **Call Bridge** | Twilio-powered rep-to-lead phone connection with working hours enforcement |
 | **Multi-Org White Label** | Agency manages multiple client orgs with isolated data, branding, and funnels |
+| **Campaign Attribution** | Track ad campaigns via UTM parameters with leads, avg AI score, estimated revenue, CPL, and ROAS |
 | **Revenue Intelligence** | Dashboard with KPIs, AI lead distribution, and estimated revenue projections |
-| **Client Onboarding** | One-click org + funnel provisioning from agency admin UI |
+| **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
+| **Client Onboarding** | One-click org + funnel provisioning from agency admin UI with industry template selection |
 | **Intelligent Routing** | Rule-based tag and priority assignment from lead answers |
 | **Ops Readiness** | Health endpoint and status page for deployment verification |
 
 ## Architecture
 
 ```
+Industry (template: funnel schema, sequences, scoring, revenue defaults)
+ ↓
 Agency
- └── Org (white-label branding, revenue settings)
+ └── Org (white-label branding, revenue settings, industry profile)
       └── Funnel (form schema, routing rules, automation config)
            └── Lead (answers, AI score, contact status, sequences)
 ```
@@ -158,8 +162,13 @@ All external integrations (Twilio, SMTP, Claude) gracefully degrade when not con
 | `GET` | `/admin/leads/{id}` | JWT | Lead detail |
 | `GET` | `/admin/funnels` | JWT | List funnels |
 | `GET`/`PATCH` | `/admin/funnels/{id}` | JWT | Funnel detail / settings |
+| `GET` | `/admin/campaigns` | JWT | List campaigns with attribution metrics |
+| `POST` | `/admin/campaigns` | JWT | Create campaign |
+| `PATCH` | `/admin/campaigns/{id}` | JWT | Update campaign ad spend |
+| `GET` | `/admin/industries` | JWT | List industry profiles |
+| `GET` | `/admin/industries/{slug}/template` | JWT | Preview industry template |
 | `GET` | `/admin/agency/orgs` | JWT | List agency orgs |
-| `POST` | `/admin/agency/orgs` | JWT | Create client org |
+| `POST` | `/admin/agency/orgs` | JWT | Create client org (with optional `industry_slug`) |
 | `POST` | `/admin/agency/orgs/{id}/funnels` | JWT | Create funnel for org |
 | `PATCH` | `/admin/org/settings` | JWT | Update revenue settings |
 
@@ -172,6 +181,8 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | Core Platform | Lead capture, AI scoring, automation engine | Done |
 | White Label | Agency layer, org switcher, branding, onboarding | Done |
 | Revenue Intelligence | Dashboard, KPIs, estimated revenue | Done |
+| Campaign Attribution | UTM-based campaign tracking with ROAS | Done |
+| Industry Templates | Vertical-specific profiles for onboarding | Done |
 | Pilot Ops | Health checks, status page, deployment runbook | Done |
 | Stripe Billing | Per-org subscription management | Planned |
 | AI Voice Agent | Conversational AI for inbound/outbound calls | Planned |
