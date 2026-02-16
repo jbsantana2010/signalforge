@@ -15,7 +15,9 @@ AI-powered lead response and follow-up system built for agencies and high-ticket
 | **Multi-Org White Label** | Agency manages multiple client orgs with isolated data, branding, and funnels |
 | **AI Campaign Strategy** | One-click AI-generated ad strategy: angles, hooks, offers, targeting, and complete ad variations |
 | **Campaign Attribution** | Track ad campaigns via UTM parameters with leads, avg AI score, estimated revenue, CPL, and ROAS |
-| **Revenue Intelligence** | Dashboard with KPIs, AI lead distribution, and estimated revenue projections |
+| **Pipeline & Real Revenue** | Lead stages (new → won/lost), deal values, actual revenue, actual ROAS, pipeline value tracking |
+| **Conversion Assist** | AI-generated next best action, SMS/email scripts, and call talking points per lead stage |
+| **Revenue Intelligence** | Dashboard with KPIs, AI lead distribution, estimated and actual revenue projections |
 | **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
 | **Client Onboarding** | One-click org + funnel provisioning from agency admin UI with industry template selection |
 | **Intelligent Routing** | Rule-based tag and priority assignment from lead answers |
@@ -77,9 +79,12 @@ Agency (WaveLaunch Marketing)
 
 ```
 Estimated Revenue = Total Leads x (Close Rate % / 100) x Avg Deal Value
+Actual Revenue    = SUM(deal_amount) WHERE stage = 'won'
+Pipeline Value    = SUM(deal_amount) WHERE stage IN ('qualified', 'appointment')
+Actual ROAS       = Actual Revenue / Ad Spend
 ```
 
-Configurable per org via funnel settings. Displayed on the revenue intelligence dashboard.
+Estimated revenue is configurable per org. Actual revenue is tracked via lead pipeline stages (new → contacted → qualified → appointment → won/lost). When a lead is marked "won", a deal amount is required. Dashboard displays both estimated and actual metrics side by side.
 
 ## Local Development
 
@@ -161,6 +166,8 @@ All external integrations (Twilio, SMTP, Claude) gracefully degrade when not con
 | `GET` | `/admin/dashboard` | JWT | Revenue intelligence metrics |
 | `GET` | `/admin/leads` | JWT | List leads (paginated) |
 | `GET` | `/admin/leads/{id}` | JWT | Lead detail |
+| `PATCH` | `/admin/leads/{id}/stage` | JWT | Update lead pipeline stage |
+| `POST` | `/admin/leads/{id}/assist` | JWT | AI conversion assist (scripts + next action) |
 | `GET` | `/admin/funnels` | JWT | List funnels |
 | `GET`/`PATCH` | `/admin/funnels/{id}` | JWT | Funnel detail / settings |
 | `POST` | `/admin/ai/ad-strategy` | JWT | Generate AI campaign strategy |
@@ -185,6 +192,8 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | Revenue Intelligence | Dashboard, KPIs, estimated revenue | Done |
 | AI Campaign Strategy | One-click ad strategy generation with Claude | Done |
 | Campaign Attribution | UTM-based campaign tracking with ROAS | Done |
+| Pipeline & Revenue | Lead stages, deal values, actual revenue, actual ROAS | Done |
+| Conversion Assist | AI next-action, SMS/email scripts, call talking points | Done |
 | Industry Templates | Vertical-specific profiles for onboarding | Done |
 | Pilot Ops | Health checks, status page, deployment runbook | Done |
 | Stripe Billing | Per-org subscription management | Planned |

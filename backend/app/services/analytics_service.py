@@ -69,6 +69,32 @@ async def get_org_dashboard_metrics(conn: asyncpg.Connection, org_id: str) -> di
     # Estimated revenue
     estimated_revenue = round(total_leads * (close_rate / 100) * avg_deal_value, 2)
 
+    # Pipeline metrics (actual revenue tracking)
+    actual_revenue_raw = await conn.fetchval(
+        "SELECT COALESCE(SUM(deal_amount), 0) FROM leads WHERE org_id = $1 AND stage = 'won'",
+        org_id,
+    )
+    actual_revenue = round(float(actual_revenue_raw), 2)
+
+    won_deals = await conn.fetchval(
+        "SELECT COUNT(*) FROM leads WHERE org_id = $1 AND stage = 'won'",
+        org_id,
+    )
+
+    lost_deals = await conn.fetchval(
+        "SELECT COUNT(*) FROM leads WHERE org_id = $1 AND stage = 'lost'",
+        org_id,
+    )
+
+    closed_total = won_deals + lost_deals
+    actual_close_rate = round((won_deals / closed_total * 100), 1) if closed_total > 0 else 0
+
+    pipeline_value_raw = await conn.fetchval(
+        "SELECT COALESCE(SUM(deal_amount), 0) FROM leads WHERE org_id = $1 AND stage IN ('qualified', 'appointment')",
+        org_id,
+    )
+    pipeline_value = round(float(pipeline_value_raw), 2)
+
     return {
         "total_leads": total_leads,
         "leads_last_7_days": leads_7d,
@@ -81,6 +107,11 @@ async def get_org_dashboard_metrics(conn: asyncpg.Connection, org_id: str) -> di
         "estimated_revenue": estimated_revenue,
         "avg_deal_value": avg_deal_value,
         "close_rate_percent": close_rate,
+        "actual_revenue": actual_revenue,
+        "actual_close_rate": actual_close_rate,
+        "won_deals": won_deals,
+        "lost_deals": lost_deals,
+        "pipeline_value": pipeline_value,
     }
 
 
@@ -103,8 +134,10 @@ async def get_campaign_metrics(conn: asyncpg.Connection, org_id: str) -> dict:
             c.source,
             c.utm_campaign,
             c.ad_spend,
-            COUNT(l.id)                         AS leads,
-            COALESCE(AVG(l.ai_score), 0)        AS avg_ai_score
+            COUNT(l.id)                                             AS leads,
+            COALESCE(AVG(l.ai_score), 0)                            AS avg_ai_score,
+            COUNT(l.id) FILTER (WHERE l.stage = 'won')              AS won_deals,
+            COALESCE(SUM(l.deal_amount) FILTER (WHERE l.stage = 'won'), 0) AS actual_revenue
         FROM campaigns c
         LEFT JOIN leads l
             ON l.org_id = c.org_id
@@ -124,6 +157,9 @@ async def get_campaign_metrics(conn: asyncpg.Connection, org_id: str) -> dict:
         est_revenue = round(leads * (close_rate / 100) * avg_deal_value, 2)
         cpl = round(ad_spend / leads, 2) if leads > 0 else None
         roas = round(est_revenue / ad_spend, 2) if ad_spend > 0 else None
+        won = int(r["won_deals"])
+        act_revenue = round(float(r["actual_revenue"]), 2)
+        actual_roas = round(act_revenue / ad_spend, 2) if ad_spend > 0 else None
 
         campaigns.append({
             "id": str(r["id"]),
@@ -136,6 +172,9 @@ async def get_campaign_metrics(conn: asyncpg.Connection, org_id: str) -> dict:
             "ad_spend": ad_spend,
             "cost_per_lead": cpl,
             "roas": roas,
+            "won_deals": won,
+            "actual_revenue": act_revenue,
+            "actual_roas": actual_roas,
         })
 
     return {"campaigns": campaigns}

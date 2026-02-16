@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchDashboard } from '@/lib/api';
+import { fetchDashboard, fetchCampaigns } from '@/lib/api';
 import type { DashboardMetrics } from '@/types/admin';
 
 function fmt$(n: number) {
@@ -28,6 +28,7 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [actualRoas, setActualRoas] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -38,6 +39,21 @@ export default function DashboardPage() {
       try {
         const data = await fetchDashboard(token);
         setMetrics(data.metrics);
+
+        // Calculate actual ROAS from campaigns
+        try {
+          const campData = await fetchCampaigns(token);
+          const campaigns = campData.campaigns ?? [];
+          if (campaigns.length > 0) {
+            const totalActualRevenue = campaigns.reduce((sum: number, c: { actual_revenue?: number }) => sum + (c.actual_revenue ?? 0), 0);
+            const totalSpend = campaigns.reduce((sum: number, c: { ad_spend?: number }) => sum + (c.ad_spend ?? 0), 0);
+            if (totalSpend > 0) {
+              setActualRoas(Math.round((totalActualRevenue / totalSpend) * 100) / 100);
+            }
+          }
+        } catch {
+          // campaigns optional for ROAS
+        }
       } catch {
         setError('Failed to load dashboard');
       } finally {
@@ -61,12 +77,28 @@ export default function DashboardPage() {
 
         {metrics && (
           <div className="space-y-6">
-            {/* KPI Cards */}
+            {/* KPI Cards - Row 1: Core */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <KpiCard label="Total Leads" value={String(metrics.total_leads)} />
               <KpiCard label="Leads (7 Days)" value={String(metrics.leads_last_7_days)} />
-              <KpiCard label="Est. Revenue" value={fmt$(metrics.estimated_revenue)} />
+              <KpiCard label="Est. Revenue" value={fmt$(metrics.estimated_revenue)} sub="estimated" />
               <KpiCard label="Contacted" value={`${metrics.contacted_percent}%`} />
+            </div>
+
+            {/* KPI Cards - Row 2: Actual Revenue */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <KpiCard label="Actual Revenue" value={fmt$(metrics.actual_revenue)} accent="green" />
+              <KpiCard label="Won Deals" value={String(metrics.won_deals)} accent="green" />
+              <KpiCard label="Pipeline Value" value={fmt$(metrics.pipeline_value)} sub="qualified + appointment" />
+              {actualRoas !== null ? (
+                <KpiCard
+                  label="Actual ROAS"
+                  value={`${actualRoas.toFixed(2)}x`}
+                  accent={actualRoas >= 3 ? 'green' : actualRoas < 1 ? 'red' : undefined}
+                />
+              ) : (
+                <KpiCard label="Close Rate (Actual)" value={`${metrics.actual_close_rate}%`} />
+              )}
             </div>
 
             {/* Detail Cards */}
@@ -124,6 +156,14 @@ export default function DashboardPage() {
                       Deal Value: {fmt$(metrics.avg_deal_value)} &middot; Close Rate: {metrics.close_rate_percent}%
                     </div>
                   </div>
+                  {(metrics.won_deals > 0 || metrics.lost_deals > 0) && (
+                    <div className="pt-2 border-t">
+                      <div className="text-xs text-gray-400">Pipeline Summary</div>
+                      <div className="text-sm text-gray-600">
+                        Won: {metrics.won_deals} &middot; Lost: {metrics.lost_deals} &middot; Actual Close: {metrics.actual_close_rate}%
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -134,11 +174,18 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
+function KpiCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  const accentClass = accent === 'green'
+    ? 'text-green-700'
+    : accent === 'red'
+    ? 'text-red-700'
+    : 'text-gray-900';
+
   return (
     <div className="bg-white rounded-lg shadow-sm border p-5">
       <div className="text-sm text-gray-500">{label}</div>
-      <div className="text-2xl font-bold text-gray-900 mt-1">{value}</div>
+      <div className={`text-2xl font-bold mt-1 ${accentClass}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
 }

@@ -96,6 +96,14 @@ class LeadDetail(BaseModel):
     call_attempts: int = 0
     contact_status: str | None = None
     last_contacted_at: datetime | None = None
+    stage: str = "new"
+    deal_amount: Optional[float] = None
+    stage_updated_at: datetime | None = None
+
+
+class LeadStageUpdateRequest(BaseModel):
+    stage: str
+    deal_amount: Optional[float] = None
 
 
 # --- Admin: Auth ---

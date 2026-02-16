@@ -338,6 +338,40 @@ Status callback for SMS and voice calls. Twilio posts status updates here.
 
 ---
 
+### PATCH /admin/leads/{lead_id}/stage
+
+Update the pipeline stage of a lead. When stage is `won`, `deal_amount` is required.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body:**
+```json
+{
+  "stage": "won",
+  "deal_amount": 8400.00
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| stage | Yes | One of: `new`, `contacted`, `qualified`, `appointment`, `won`, `lost` |
+| deal_amount | Conditional | Required when stage is `won`. Ignored for other stages. |
+
+**Response 200:** Returns full `LeadDetail` with updated stage, deal_amount, and stage_updated_at.
+
+**400:** Invalid stage or missing deal_amount when stage is `won`.
+
+**404:** Lead not found or doesn't belong to this org.
+
+```bash
+curl -X PATCH http://localhost:8000/admin/leads/$LEAD_ID/stage \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"stage":"won","deal_amount":8400}'
+```
+
+---
+
 ### GET /admin/leads/{lead_id}/events
 
 Automation event timeline for a lead, ordered chronologically.
@@ -382,6 +416,45 @@ Automation event timeline for a lead, ordered chronologically.
 
 ```bash
 curl http://localhost:8000/admin/leads/$LEAD_ID/events \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## AI Conversion Assist (JWT Required)
+
+### POST /admin/leads/{lead_id}/assist
+
+Generate AI-powered conversion coaching for a specific lead. Returns a next best action, SMS/email scripts, and call talking points tailored to the lead's pipeline stage and form answers. Falls back to deterministic stage-based scripts when Claude API key is not configured.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body:** None (POST with empty body)
+
+**Response 200:**
+```json
+{
+  "mode": "claude",
+  "data": {
+    "next_action": "Make immediate contact within 5 minutes. Speed to lead is critical.",
+    "sms_script": "Hi John, thanks for reaching out about solar! When's a good time for a quick call?",
+    "email_script": "Hi John,\n\nThank you for your inquiry about solar installation...",
+    "call_talking_points": [
+      "Introduce yourself and reference their solar interest",
+      "Ask about their timeline and roof condition",
+      "Identify budget range and financing preferences",
+      "Offer a free site assessment"
+    ]
+  }
+}
+```
+
+The `mode` field indicates `"claude"` (AI-generated) or `"stub"` (deterministic fallback). Scripts are personalized with the lead's name and adapt to their current pipeline stage.
+
+**404:** Lead not found or doesn't belong to this org.
+
+```bash
+curl -X POST http://localhost:8000/admin/leads/$LEAD_ID/assist \
   -H "Authorization: Bearer $TOKEN"
 ```
 

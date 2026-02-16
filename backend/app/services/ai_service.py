@@ -285,6 +285,177 @@ async def generate_ad_strategy(
     return _strategy_stub(org_data)
 
 
+# ---------------------------------------------------------------------------
+# Conversion Assist (Human-in-the-Loop)
+# ---------------------------------------------------------------------------
+
+_ASSIST_STUBS: dict[str, dict] = {
+    "new": {
+        "next_action": "Make immediate contact within 5 minutes. Speed to lead is critical — the first responder wins 78% of deals.",
+        "sms_script": "Hi {{name}}, thanks for reaching out! I'd love to learn more about what you're looking for. When's a good time for a quick call?",
+        "email_script": "Hi {{name}},\n\nThank you for your inquiry. I wanted to personally reach out and let you know we received your request.\n\nI'd love to schedule a quick call to understand your needs better and see how we can help.\n\nWhat time works best for you this week?\n\nBest regards",
+        "call_talking_points": [
+            "Introduce yourself and reference their specific inquiry",
+            "Ask about their timeline and urgency",
+            "Identify budget range and decision-making process",
+            "Offer to send relevant information or schedule a follow-up",
+        ],
+    },
+    "contacted": {
+        "next_action": "Follow up to qualify the lead. Ask discovery questions about budget, timeline, and decision criteria.",
+        "sms_script": "Hi {{name}}, just checking in on our conversation. Do you have any questions I can help with? Happy to jump on a quick call.",
+        "email_script": "Hi {{name}},\n\nGreat speaking with you! I wanted to follow up on our conversation and share a few things that might be helpful.\n\nBased on what you mentioned, I think we'd be a great fit. Would you be open to a more detailed discussion this week?\n\nLooking forward to hearing from you.",
+        "call_talking_points": [
+            "Reference previous conversation specifics",
+            "Ask qualifying questions: budget, timeline, authority",
+            "Identify pain points and match to your solution",
+            "Propose next step: demo, quote, or site visit",
+        ],
+    },
+    "qualified": {
+        "next_action": "Schedule an appointment or demo. This lead is qualified — move them to a concrete next step.",
+        "sms_script": "Hi {{name}}, I have some availability this week for us to go over the details. Would [day] at [time] work for you?",
+        "email_script": "Hi {{name}},\n\nBased on our discussions, I'm confident we can deliver exactly what you need.\n\nI'd like to schedule a time to walk you through our options in detail and put together a custom proposal.\n\nHere are a few times I have available:\n- [Option 1]\n- [Option 2]\n- [Option 3]\n\nWhich works best for you?",
+        "call_talking_points": [
+            "Confirm their needs and priorities haven't changed",
+            "Present a tailored solution or proposal",
+            "Address any objections or concerns proactively",
+            "Lock in a specific date/time for the next meeting",
+        ],
+    },
+    "appointment": {
+        "next_action": "Confirm appointment logistics and prepare a tailored presentation. Send a reminder 24 hours before.",
+        "sms_script": "Hi {{name}}, just confirming our appointment on [date] at [time]. Looking forward to it! Let me know if anything changes.",
+        "email_script": "Hi {{name}},\n\nLooking forward to our meeting on [date] at [time].\n\nTo make the most of our time, I'll have a customized overview ready for you. If there's anything specific you'd like me to cover, just let me know.\n\nSee you soon!",
+        "call_talking_points": [
+            "Confirm the appointment date, time, and location/link",
+            "Ask if other decision-makers should attend",
+            "Preview what you'll cover to build anticipation",
+            "Mention any materials to review beforehand",
+        ],
+    },
+    "won": {
+        "next_action": "Send a thank-you message and ask for a referral. Happy customers are your best lead source.",
+        "sms_script": "Hi {{name}}, thank you for choosing us! We're excited to get started. If you know anyone else who could benefit, we'd love an introduction.",
+        "email_script": "Hi {{name}},\n\nThank you for your trust in us — we're thrilled to be working together!\n\nAs we get started, please don't hesitate to reach out with any questions.\n\nAlso, if you know anyone who might benefit from our services, we'd greatly appreciate a referral. We treat every referral like family.\n\nHere's to a great partnership!",
+        "call_talking_points": [
+            "Express genuine gratitude for their business",
+            "Outline the next steps in the onboarding process",
+            "Set expectations for communication cadence",
+            "Ask if they know anyone who might benefit from your services",
+        ],
+    },
+    "lost": {
+        "next_action": "Send a graceful re-engagement message. Leave the door open — 30% of lost deals come back within 6 months.",
+        "sms_script": "Hi {{name}}, I understand the timing wasn't right. If anything changes in the future, I'm here to help. Wishing you the best!",
+        "email_script": "Hi {{name}},\n\nI understand you've decided to go in a different direction, and I respect that decision.\n\nIf anything changes in the future, please don't hesitate to reach out. We'd be happy to help whenever the time is right.\n\nWishing you all the best.",
+        "call_talking_points": [
+            "Thank them for their time and consideration",
+            "Ask (briefly) what the deciding factor was — for your learning",
+            "Let them know the door is always open",
+            "Offer to stay in touch with occasional updates",
+        ],
+    },
+}
+
+
+def _conversion_assist_stub(lead_data: dict) -> dict:
+    """Deterministic conversion assist based on lead stage."""
+    stage = lead_data.get("stage", "new")
+    name = lead_data.get("name", "there")
+    base = _ASSIST_STUBS.get(stage, _ASSIST_STUBS["new"])
+
+    return {
+        "mode": "stub",
+        "data": {
+            "next_action": base["next_action"],
+            "sms_script": base["sms_script"].replace("{{name}}", name),
+            "email_script": base["email_script"].replace("{{name}}", name),
+            "call_talking_points": base["call_talking_points"],
+        },
+    }
+
+
+async def generate_conversion_assist(org_data: dict, lead_data: dict) -> dict:
+    """
+    Generate AI-powered conversion assist for a specific lead.
+    org_data: industry_name, avg_deal_value, close_rate_percent, scoring_config
+    lead_data: name, stage, answers, ai_score, ai_summary, service
+    Returns {"mode": "claude"|"stub", "data": {...}}
+    Never raises exceptions.
+    """
+    api_key = os.getenv("CLAUDE_API_KEY", "")
+
+    if api_key:
+        try:
+            return await _call_claude_assist(api_key, org_data, lead_data)
+        except Exception:
+            return _conversion_assist_stub(lead_data)
+
+    return _conversion_assist_stub(lead_data)
+
+
+async def _call_claude_assist(
+    api_key: str, org_data: dict, lead_data: dict
+) -> dict:
+    industry_name = org_data.get("industry_name", "general business")
+    avg_deal = org_data.get("avg_deal_value", 5000)
+    close_rate = org_data.get("close_rate_percent", 10)
+    scoring_info = ""
+    if org_data.get("scoring_config"):
+        scoring_info = f"\nScoring rubric: {json.dumps(org_data['scoring_config'])}"
+
+    stage = lead_data.get("stage", "new")
+    name = lead_data.get("name", "Unknown")
+    answers_str = json.dumps(lead_data.get("answers", {}))
+    ai_score = lead_data.get("ai_score")
+    ai_summary = lead_data.get("ai_summary", "")
+
+    score_info = f"\nAI lead score: {ai_score}/100" if ai_score is not None else ""
+    summary_info = f"\nAI summary: {ai_summary}" if ai_summary else ""
+
+    prompt = (
+        f"You are an expert sales coach for the {industry_name} industry.\n\n"
+        f"Business context:\n"
+        f"- Average deal value: ${avg_deal:,.0f}\n"
+        f"- Close rate: {close_rate}%\n"
+        f"{scoring_info}\n\n"
+        f"Lead information:\n"
+        f"- Name: {name}\n"
+        f"- Current pipeline stage: {stage}\n"
+        f"- Form answers: {answers_str}\n"
+        f"{score_info}{summary_info}\n\n"
+        "Generate a conversion assist package as a JSON object with these exact keys:\n"
+        "- \"next_action\": 1-2 sentence recommended next action for the sales rep\n"
+        "- \"sms_script\": ready-to-send SMS message (under 160 chars, personalized)\n"
+        "- \"email_script\": ready-to-send email body (3-5 sentences, personalized)\n"
+        "- \"call_talking_points\": array of 4 bullet points for a phone call\n\n"
+        "Be specific to this lead's situation, stage, and industry. "
+        "Use their name. Reference their specific interests from the form answers.\n\n"
+        "Respond with ONLY valid JSON, no other text."
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-5-20250929",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["content"][0]["text"]
+        result = json.loads(text)
+        return {"mode": "claude", "data": result}
+
+
 async def _call_claude_strategy(
     api_key: str, org_data: dict, goal: str, budget: float, notes: str | None
 ) -> dict:

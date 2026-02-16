@@ -37,6 +37,9 @@ export interface LeadDetail {
   call_attempts?: number;
   contact_status?: string;
   last_contacted_at?: string;
+  stage?: string;
+  deal_amount?: number;
+  stage_updated_at?: string;
 }
 
 export interface LeadsResponse {
@@ -123,6 +126,11 @@ export interface DashboardMetrics {
   estimated_revenue: number;
   avg_deal_value: number;
   close_rate_percent: number;
+  actual_revenue: number;
+  actual_close_rate: number;
+  won_deals: number;
+  lost_deals: number;
+  pipeline_value: number;
 }
 
 export interface OrgListItem {

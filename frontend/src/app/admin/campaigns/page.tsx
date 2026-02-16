@@ -16,6 +16,9 @@ interface CampaignMetric {
   ad_spend: number;
   cost_per_lead: number | null;
   roas: number | null;
+  won_deals: number;
+  actual_revenue: number;
+  actual_roas: number | null;
 }
 
 const SOURCE_OPTIONS = ['facebook', 'google', 'tiktok', 'manual'];
@@ -185,11 +188,14 @@ export default function CampaignsPage() {
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Campaign</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Source</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-600">Leads</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-600">Won</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-600">Avg AI</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-600">Est Revenue</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-600">Actual Rev</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-600">Spend</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-600">CPL</th>
-                  <th className="px-4 py-3 text-right font-medium text-gray-600">ROAS</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-600">Est ROAS</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-600">Actual ROAS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -201,8 +207,10 @@ export default function CampaignsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{c.source}</td>
                     <td className="px-4 py-3 text-right font-mono">{c.leads}</td>
+                    <td className="px-4 py-3 text-right font-mono">{c.won_deals}</td>
                     <td className="px-4 py-3 text-right font-mono">{c.avg_ai_score}</td>
                     <td className="px-4 py-3 text-right font-mono">${c.estimated_revenue.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-mono font-semibold text-green-700">${c.actual_revenue.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
                       {editId === c.id ? (
                         <div className="flex items-center justify-end gap-1">
@@ -239,6 +247,9 @@ export default function CampaignsPage() {
                     </td>
                     <td className={`px-4 py-3 text-right font-mono font-semibold rounded ${roasColor(c.roas)}`}>
                       {c.roas !== null ? `${c.roas.toFixed(2)}x` : '—'}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono font-semibold rounded ${roasColor(c.actual_roas)}`}>
+                      {c.actual_roas !== null ? `${c.actual_roas.toFixed(2)}x` : '—'}
                     </td>
                   </tr>
                 ))}

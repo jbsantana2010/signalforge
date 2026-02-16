@@ -167,6 +167,72 @@ python seed.py
 - `POST /public/twilio/rep-gather` — TwiML for rep digit input
 - `POST /public/twilio/status` — Status callback for calls/SMS
 
+## Sprint 6: Pipeline & Real Revenue Tracking
+
+### What Changed
+
+- Migration `010_pipeline.sql` adds `stage`, `deal_amount`, and `stage_updated_at` columns to `leads`
+- New `PATCH /admin/leads/{id}/stage` endpoint to update lead pipeline stage
+- Valid stages: `new`, `contacted`, `qualified`, `appointment`, `won`, `lost`
+- When stage is `won`, `deal_amount` is required (400 if missing)
+- Dashboard metrics now include: `actual_revenue`, `won_deals`, `lost_deals`, `actual_close_rate`, `pipeline_value`
+- Campaign metrics now include: `won_deals`, `actual_revenue`, `actual_roas`
+- Frontend lead detail page has a Pipeline Stage manager with visual progress bar
+- Dashboard shows two KPI rows: estimated metrics and actual revenue metrics
+- Campaign table shows Won Deals, Actual Revenue, and Actual ROAS columns
+- Seed data marks lead #1 as `won` with `deal_amount = $8,400`
+
+### Migration
+
+Run `python seed.py` to apply `010_pipeline.sql` and update seed data with pipeline stage.
+
+### Testing Pipeline Flow
+
+1. Login as admin: `admin@solarprime.com / admin123`
+2. Navigate to Dashboard — verify Actual Revenue shows `$8,400` (from seeded won deal)
+3. Navigate to Leads — click any lead
+4. Use the Pipeline Stage dropdown to change stage
+5. Set a lead to "Won" — deal amount field appears, enter a value, save
+6. Return to Dashboard — verify Actual Revenue updated
+7. Navigate to Campaigns — verify Won Deals and Actual ROAS columns show data
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| PATCH | /admin/leads/{id}/stage | JWT + X-ORG-ID | Update lead pipeline stage and deal amount |
+
+---
+
+## Sprint 5E: Conversion Assist (Human-in-the-Loop AI)
+
+### What Changed
+
+- New `POST /admin/leads/{id}/assist` endpoint generates AI-powered conversion coaching per lead
+- `generate_conversion_assist()` added to `ai_service.py` with Claude API and deterministic fallback
+- Returns structured JSON: `next_action`, `sms_script`, `email_script`, `call_talking_points`
+- Safe mode provides stage-specific scripts when Claude API key is not configured
+- Frontend "AI Conversion Assist" section added to lead detail page with copy buttons
+- Yellow "Safe Mode" badge shown when using deterministic fallback
+- Never auto-sends messages — human-in-the-loop only
+
+### Testing
+
+1. Navigate to any lead detail page
+2. Click "Generate Assist" button
+3. Verify scripts appear with next action, SMS, email, and call talking points
+4. Click "Copy" buttons to copy SMS or email scripts
+5. Change lead stage → regenerate → verify scripts adapt to new stage
+6. Without `CLAUDE_API_KEY` set, yellow "Safe Mode" badge should appear
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/leads/{id}/assist | JWT + X-ORG-ID | AI conversion assist for a lead |
+
+---
+
 ## Sprint 5C: Stale Org ID Auto-Recovery
 
 ### What Changed

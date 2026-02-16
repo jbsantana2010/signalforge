@@ -608,6 +608,22 @@ async def main():
         )
         print("  Campaign 'Summer Solar Push' (utm: solar-summer, spend: $250)")
 
+        # Mark lead #1 (John Smith) as won with deal_amount
+        print("Updating lead #1 pipeline stage...")
+        first_lead_id = await conn.fetchval(
+            """SELECT id FROM leads WHERE org_id = $1
+               ORDER BY created_at ASC LIMIT 1""",
+            org_id,
+        )
+        if first_lead_id:
+            await conn.execute(
+                """UPDATE leads
+                   SET stage = 'won', deal_amount = 8400, stage_updated_at = NOW()
+                   WHERE id = $1""",
+                first_lead_id,
+            )
+            print(f"  Lead 1 ({first_lead_id}) → stage=won, deal_amount=$8,400")
+
         print("\nSeed complete!")
         print("  Login: admin@solarprime.com / admin123")
         print("  Funnel slug: solar-prime")

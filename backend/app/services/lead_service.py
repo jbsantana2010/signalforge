@@ -156,7 +156,8 @@ async def get_lead_detail(
                score, is_spam, created_at,
                tags, priority, ai_summary, ai_score,
                email_status, sms_status, call_status, call_attempts,
-               contact_status, last_contacted_at
+               contact_status, last_contacted_at,
+               stage, deal_amount, stage_updated_at
         FROM leads
         WHERE id = $1 AND org_id = $2
         """,
@@ -189,6 +190,9 @@ async def get_lead_detail(
         "call_attempts": row["call_attempts"] or 0,
         "contact_status": row["contact_status"],
         "last_contacted_at": row["last_contacted_at"],
+        "stage": row["stage"] or "new",
+        "deal_amount": float(row["deal_amount"]) if row["deal_amount"] is not None else None,
+        "stage_updated_at": row["stage_updated_at"],
     }
 
 

@@ -123,6 +123,30 @@ export async function updateFunnelSettings(token: string, funnelId: string, data
   return res.json();
 }
 
+export async function updateLeadStage(token: string, leadId: string, data: {
+  stage: string; deal_amount?: number;
+}) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/stage`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to update lead stage');
+  }
+  return res.json();
+}
+
+export async function generateLeadAssist(token: string, leadId: string) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/assist`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to generate assist');
+  return res.json();
+}
+
 export async function fetchLeadSequences(token: string, leadId: string) {
   const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/sequences`, {
     headers: authHeaders(token),
