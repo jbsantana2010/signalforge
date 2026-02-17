@@ -123,8 +123,26 @@ export async function updateFunnelSettings(token: string, funnelId: string, data
   return res.json();
 }
 
+export async function fetchLeadIntelligence(token: string, leadId: string) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/intelligence`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch intelligence');
+  return res.json();
+}
+
+export async function fetchDashboardInsights(token: string) {
+  const res = await authFetch(`${API_BASE}/admin/dashboard/insights`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch insights');
+  return res.json();
+}
+
 export async function updateLeadStage(token: string, leadId: string, data: {
   stage: string; deal_amount?: number;
+  next_action_at?: string; next_action_note?: string; reason?: string;
+  outcome_reason?: string; outcome_note?: string;
 }) {
   const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/stage`, {
     method: 'PATCH',
@@ -135,6 +153,14 @@ export async function updateLeadStage(token: string, leadId: string, data: {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail ?? 'Failed to update lead stage');
   }
+  return res.json();
+}
+
+export async function fetchStageHistory(token: string, leadId: string) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/stage-history`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch stage history');
   return res.json();
 }
 
@@ -182,6 +208,14 @@ export async function fetchDashboard(token: string) {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to fetch dashboard');
+  return res.json();
+}
+
+export async function fetchPipelineMetrics(token: string) {
+  const res = await authFetch(`${API_BASE}/admin/dashboard/metrics`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch pipeline metrics');
   return res.json();
 }
 

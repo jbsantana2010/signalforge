@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist } from '@/lib/api';
-import { LeadDetail, LeadSequenceItem } from '@/types/admin';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence } from '@/lib/api';
+import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence } from '@/types/admin';
 
 interface AutomationEvent {
   event_type: string;
@@ -14,13 +14,13 @@ interface AutomationEvent {
   created_at: string;
 }
 
-const STAGES = ['new', 'contacted', 'qualified', 'appointment', 'won', 'lost'] as const;
+const STAGES = ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'] as const;
 
 const STAGE_COLORS: Record<string, string> = {
   new: 'bg-gray-100 text-gray-800',
   contacted: 'bg-blue-100 text-blue-800',
   qualified: 'bg-purple-100 text-purple-800',
-  appointment: 'bg-orange-100 text-orange-800',
+  proposal: 'bg-orange-100 text-orange-800',
   won: 'bg-green-100 text-green-800',
   lost: 'bg-red-100 text-red-800',
 };
@@ -80,12 +80,18 @@ export default function LeadDetailPage() {
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [sequences, setSequences] = useState<LeadSequenceItem[]>([]);
   const [events, setEvents] = useState<AutomationEvent[]>([]);
+  const [stageHistory, setStageHistory] = useState<StageHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Intelligence
+  const [intelligence, setIntelligence] = useState<LeadIntelligence | null>(null);
 
   // Stage management
   const [selectedStage, setSelectedStage] = useState('new');
   const [dealAmount, setDealAmount] = useState('');
+  const [outcomeReason, setOutcomeReason] = useState('');
+  const [outcomeNote, setOutcomeNote] = useState('');
   const [stageSaving, setStageSaving] = useState(false);
   const [stageError, setStageError] = useState('');
   const [stageSuccess, setStageSuccess] = useState('');
@@ -118,6 +124,18 @@ export default function LeadDetailPage() {
         } catch {
           // Events are optional
         }
+        try {
+          const hist = await fetchStageHistory(token, params.id as string);
+          setStageHistory(hist.history ?? []);
+        } catch {
+          // Stage history is optional
+        }
+        try {
+          const intel = await fetchLeadIntelligence(token, params.id as string);
+          setIntelligence(intel);
+        } catch {
+          // Intelligence is optional
+        }
       } catch {
         setError('Failed to load lead details');
       } finally {
@@ -136,7 +154,7 @@ export default function LeadDetailPage() {
     setStageSaving(true);
 
     try {
-      const payload: { stage: string; deal_amount?: number } = { stage: selectedStage };
+      const payload: { stage: string; deal_amount?: number; outcome_reason?: string; outcome_note?: string } = { stage: selectedStage };
       if (selectedStage === 'won') {
         if (!dealAmount || parseFloat(dealAmount) <= 0) {
           setStageError('Deal amount is required for won deals');
@@ -145,13 +163,39 @@ export default function LeadDetailPage() {
         }
         payload.deal_amount = parseFloat(dealAmount);
       }
+      if (selectedStage === 'won' || selectedStage === 'lost') {
+        if (!outcomeReason.trim()) {
+          setStageError('Outcome reason is required when closing a deal');
+          setStageSaving(false);
+          return;
+        }
+        payload.outcome_reason = outcomeReason;
+        if (outcomeNote.trim()) payload.outcome_note = outcomeNote;
+      }
 
-      const updated = await updateLeadStage(token, lead.id, payload);
+      const result = await updateLeadStage(token, lead.id, payload);
+      const updated = result.lead;
       setLead(updated);
       setSelectedStage(updated.stage || 'new');
       setDealAmount(updated.deal_amount ? String(updated.deal_amount) : '');
+      if (updated.close_probability != null) {
+        setIntelligence({
+          close_probability: updated.close_probability,
+          days_in_stage: updated.days_in_stage ?? null,
+          is_stale: updated.is_stale ?? false,
+          stage_leak_warning: updated.stage_leak_warning ?? false,
+          stage_leak_message: updated.stage_leak_message ?? null,
+        });
+      }
       setStageSuccess('Stage updated');
+      setOutcomeReason('');
+      setOutcomeNote('');
       setTimeout(() => setStageSuccess(''), 3000);
+      // Reload stage history
+      try {
+        const hist = await fetchStageHistory(token, lead.id);
+        setStageHistory(hist.history ?? []);
+      } catch { /* ignore */ }
     } catch (err: unknown) {
       setStageError(err instanceof Error ? err.message : 'Failed to update stage');
     } finally {
@@ -218,6 +262,15 @@ export default function LeadDetailPage() {
               <h1 className="text-2xl font-bold text-gray-900">Lead Detail</h1>
               <div className="flex items-center gap-3">
                 <StageBadge stage={lead.stage || 'new'} />
+                {intelligence && lead.stage !== 'won' && lead.stage !== 'lost' && (
+                  <span className={`inline-flex px-2 py-1 text-xs font-bold rounded-full ${
+                    intelligence.close_probability >= 60 ? 'bg-green-100 text-green-800' :
+                    intelligence.close_probability >= 30 ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {intelligence.close_probability}% close
+                  </span>
+                )}
                 {lead.priority && <PriorityBadge priority={lead.priority} />}
                 <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
                   lead.is_spam
@@ -290,6 +343,31 @@ export default function LeadDetailPage() {
                   </div>
                 )}
 
+                {(selectedStage === 'won' || selectedStage === 'lost') && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Outcome Reason *</label>
+                      <input
+                        type="text"
+                        value={outcomeReason}
+                        onChange={(e) => setOutcomeReason(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder={selectedStage === 'won' ? 'e.g. Signed contract' : 'e.g. Went with competitor'}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Outcome Note</label>
+                      <input
+                        type="text"
+                        value={outcomeNote}
+                        onChange={(e) => setOutcomeNote(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder="Optional details..."
+                      />
+                    </div>
+                  </>
+                )}
+
                 <div>
                   <button
                     onClick={handleStageSave}
@@ -319,6 +397,71 @@ export default function LeadDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Stage History */}
+            {stageHistory.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Stage History</h2>
+                <div className="space-y-2">
+                  {stageHistory.map((h) => (
+                    <div key={h.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        {h.from_stage && (
+                          <>
+                            <StageBadge stage={h.from_stage} />
+                            <span className="text-gray-400 text-xs">&rarr;</span>
+                          </>
+                        )}
+                        <StageBadge stage={h.to_stage} />
+                        {h.reason && (
+                          <span className="text-xs text-gray-500 ml-2">{h.reason}</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {new Date(h.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Intelligence Signals */}
+            {intelligence && lead.stage !== 'won' && lead.stage !== 'lost' && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Intelligence</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-500">Close Probability</div>
+                    <div className={`text-2xl font-bold ${
+                      intelligence.close_probability >= 60 ? 'text-green-700' :
+                      intelligence.close_probability >= 30 ? 'text-yellow-600' :
+                      'text-red-600'
+                    }`}>
+                      {intelligence.close_probability}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Days in Stage</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {intelligence.days_in_stage !== null ? `${intelligence.days_in_stage}d` : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Status</div>
+                    <div className={`text-sm font-medium mt-1 ${intelligence.is_stale ? 'text-yellow-600' : 'text-green-600'}`}>
+                      {intelligence.is_stale ? 'Stale' : 'Active'}
+                    </div>
+                  </div>
+                  {intelligence.stage_leak_warning && intelligence.stage_leak_message && (
+                    <div className="col-span-2 sm:col-span-1">
+                      <div className="text-sm text-gray-500">Warning</div>
+                      <div className="text-xs text-red-600 mt-1">{intelligence.stage_leak_message}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* AI Conversion Assist */}
             <div className="bg-white rounded-lg shadow-sm border p-6">

@@ -40,6 +40,45 @@ export interface LeadDetail {
   stage?: string;
   deal_amount?: number;
   stage_updated_at?: string;
+  next_action_at?: string;
+  next_action_note?: string;
+  outcome_reason?: string;
+  outcome_note?: string;
+  closed_at?: string;
+  close_probability?: number;
+  days_in_stage?: number;
+  is_stale?: boolean;
+  stage_leak_warning?: boolean;
+  stage_leak_message?: string;
+}
+
+export interface LeadIntelligence {
+  close_probability: number;
+  days_in_stage: number | null;
+  is_stale: boolean;
+  stage_leak_warning: boolean;
+  stage_leak_message: string | null;
+}
+
+export interface OrgInsights {
+  summary: string;
+  highlights: string[];
+  mode: string;
+}
+
+export interface StageHistoryItem {
+  id: string;
+  from_stage: string | null;
+  to_stage: string;
+  changed_by_user_id: string | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface LeadStageUpdateResponse {
+  lead: LeadDetail;
+  history_event_id: string | null;
 }
 
 export interface LeadsResponse {
@@ -131,6 +170,41 @@ export interface DashboardMetrics {
   won_deals: number;
   lost_deals: number;
   pipeline_value: number;
+}
+
+export interface PipelineMetrics {
+  totals: {
+    leads: number;
+    won: number;
+    lost: number;
+    conversion_rate: number;
+  };
+  stages: {
+    new: number;
+    contacted: number;
+    qualified: number;
+    proposal: number;
+    won: number;
+    lost: number;
+  };
+  pipeline: {
+    total_value: number;
+    won_value: number;
+    avg_deal_value: number;
+  };
+  velocity: {
+    avg_days_to_close: number | null;
+    avg_days_in_stage: {
+      new: number | null;
+      contacted: number | null;
+      qualified: number | null;
+      proposal: number | null;
+    };
+  };
+  actionability: {
+    overdue_next_actions: number;
+    stale_leads: number;
+  };
 }
 
 export interface OrgListItem {

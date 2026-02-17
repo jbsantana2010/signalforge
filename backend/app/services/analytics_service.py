@@ -90,7 +90,7 @@ async def get_org_dashboard_metrics(conn: asyncpg.Connection, org_id: str) -> di
     actual_close_rate = round((won_deals / closed_total * 100), 1) if closed_total > 0 else 0
 
     pipeline_value_raw = await conn.fetchval(
-        "SELECT COALESCE(SUM(deal_amount), 0) FROM leads WHERE org_id = $1 AND stage IN ('qualified', 'appointment')",
+        "SELECT COALESCE(SUM(deal_amount), 0) FROM leads WHERE org_id = $1 AND stage IN ('qualified', 'proposal')",
         org_id,
     )
     pipeline_value = round(float(pipeline_value_raw), 2)
@@ -112,6 +112,157 @@ async def get_org_dashboard_metrics(conn: asyncpg.Connection, org_id: str) -> di
         "won_deals": won_deals,
         "lost_deals": lost_deals,
         "pipeline_value": pipeline_value,
+    }
+
+
+async def get_pipeline_metrics(conn: asyncpg.Connection, org_id: str) -> dict:
+    """Return structured pipeline metrics for the Sprint 7 dashboard.
+
+    Uses 5 queries:
+      1. Stage counts + totals + pipeline values (single aggregation query)
+      2. Avg days to close (from lead_stage_history)
+      3. Avg days in stage (window function over stage history)
+      4. Overdue next-action count
+      5. Stale leads count (no contact in 7 days)
+    """
+
+    STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"]
+    STALE_DAYS = 7
+
+    # --- Query 1: stage counts + values in one pass ---
+    rows = await conn.fetch(
+        """
+        SELECT
+            COALESCE(stage, 'new') AS stage,
+            COUNT(*)               AS cnt,
+            COALESCE(SUM(deal_amount), 0) AS stage_value
+        FROM leads
+        WHERE org_id = $1
+        GROUP BY COALESCE(stage, 'new')
+        """,
+        org_id,
+    )
+    stage_counts: dict[str, int] = {s: 0 for s in STAGES}
+    stage_values: dict[str, float] = {s: 0.0 for s in STAGES}
+    for r in rows:
+        s = r["stage"]
+        if s in stage_counts:
+            stage_counts[s] = int(r["cnt"])
+            stage_values[s] = float(r["stage_value"])
+
+    total = sum(stage_counts.values())
+    won = stage_counts["won"]
+    lost = stage_counts["lost"]
+    conversion_rate = round(won / total * 100, 1) if total > 0 else 0.0
+
+    # pipeline_value = qualified + proposal (active pipeline, excludes won)
+    pipeline_total = stage_values["qualified"] + stage_values["proposal"]
+    won_value = stage_values["won"]
+
+    # avg_deal_value: average across won deals only (most meaningful)
+    avg_deal_raw = await conn.fetchval(
+        "SELECT AVG(deal_amount) FROM leads WHERE org_id = $1 AND stage = 'won' AND deal_amount IS NOT NULL",
+        org_id,
+    )
+    avg_deal = round(float(avg_deal_raw), 2) if avg_deal_raw else 0.0
+
+    # --- Query 2: avg days to close ---
+    # For each won lead, find the earliest history row where to_stage='won',
+    # then compute days from lead.created_at to that timestamp.
+    avg_close_raw = await conn.fetchval(
+        """
+        SELECT AVG(EXTRACT(EPOCH FROM (h.won_at - l.created_at)) / 86400.0)
+        FROM leads l
+        JOIN (
+            SELECT lead_id, MIN(created_at) AS won_at
+            FROM lead_stage_history
+            WHERE org_id = $1 AND to_stage = 'won'
+            GROUP BY lead_id
+        ) h ON h.lead_id = l.id
+        WHERE l.org_id = $1 AND l.stage = 'won'
+        """,
+        org_id,
+    )
+    avg_days_to_close = round(float(avg_close_raw), 1) if avg_close_raw else None
+
+    # --- Query 3: avg days in stage (window function) ---
+    # For each transition, compute time from when a lead entered a stage to
+    # when it left (next transition). For the current stage, use now() as end.
+    # Bounded to last 90 days of history for performance.
+    stage_duration_rows = await conn.fetch(
+        """
+        WITH transitions AS (
+            SELECT
+                lead_id,
+                to_stage AS stage,
+                created_at AS entered_at,
+                LEAD(created_at) OVER (PARTITION BY lead_id ORDER BY created_at) AS left_at
+            FROM lead_stage_history
+            WHERE org_id = $1
+              AND created_at >= NOW() - INTERVAL '90 days'
+        )
+        SELECT
+            stage,
+            AVG(EXTRACT(EPOCH FROM (COALESCE(left_at, NOW()) - entered_at)) / 86400.0) AS avg_days
+        FROM transitions
+        WHERE stage IN ('new', 'contacted', 'qualified', 'proposal')
+        GROUP BY stage
+        """,
+        org_id,
+    )
+    avg_days_in_stage: dict[str, float | None] = {
+        "new": None, "contacted": None, "qualified": None, "proposal": None,
+    }
+    for r in stage_duration_rows:
+        avg_days_in_stage[r["stage"]] = round(float(r["avg_days"]), 1)
+
+    # --- Query 4: overdue next actions ---
+    overdue = await conn.fetchval(
+        """
+        SELECT COUNT(*) FROM leads
+        WHERE org_id = $1
+          AND next_action_at IS NOT NULL
+          AND next_action_at < NOW()
+          AND stage NOT IN ('won', 'lost')
+        """,
+        org_id,
+    )
+
+    # --- Query 5: stale leads (no contact in 7 days) ---
+    stale = await conn.fetchval(
+        """
+        SELECT COUNT(*) FROM leads
+        WHERE org_id = $1
+          AND stage NOT IN ('won', 'lost')
+          AND (
+              (last_contacted_at IS NULL AND created_at < NOW() - INTERVAL '%s days')
+              OR last_contacted_at < NOW() - INTERVAL '%s days'
+          )
+        """ % (STALE_DAYS, STALE_DAYS),
+        org_id,
+    )
+
+    return {
+        "totals": {
+            "leads": total,
+            "won": won,
+            "lost": lost,
+            "conversion_rate": conversion_rate,
+        },
+        "stages": stage_counts,
+        "pipeline": {
+            "total_value": round(pipeline_total, 2),
+            "won_value": round(won_value, 2),
+            "avg_deal_value": avg_deal,
+        },
+        "velocity": {
+            "avg_days_to_close": avg_days_to_close,
+            "avg_days_in_stage": avg_days_in_stage,
+        },
+        "actionability": {
+            "overdue_next_actions": int(overdue),
+            "stale_leads": int(stale),
+        },
     }
 
 

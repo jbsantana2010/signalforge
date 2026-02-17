@@ -323,12 +323,12 @@ _ASSIST_STUBS: dict[str, dict] = {
             "Lock in a specific date/time for the next meeting",
         ],
     },
-    "appointment": {
-        "next_action": "Confirm appointment logistics and prepare a tailored presentation. Send a reminder 24 hours before.",
-        "sms_script": "Hi {{name}}, just confirming our appointment on [date] at [time]. Looking forward to it! Let me know if anything changes.",
-        "email_script": "Hi {{name}},\n\nLooking forward to our meeting on [date] at [time].\n\nTo make the most of our time, I'll have a customized overview ready for you. If there's anything specific you'd like me to cover, just let me know.\n\nSee you soon!",
+    "proposal": {
+        "next_action": "Confirm proposal details and prepare a tailored presentation. Send a reminder 24 hours before the meeting.",
+        "sms_script": "Hi {{name}}, just confirming our meeting on [date] at [time] to review your proposal. Looking forward to it! Let me know if anything changes.",
+        "email_script": "Hi {{name}},\n\nLooking forward to our meeting on [date] at [time] to review your proposal.\n\nTo make the most of our time, I'll have a customized overview ready for you. If there's anything specific you'd like me to cover, just let me know.\n\nSee you soon!",
         "call_talking_points": [
-            "Confirm the appointment date, time, and location/link",
+            "Confirm the meeting date, time, and location/link",
             "Ask if other decision-makers should attend",
             "Preview what you'll cover to build anticipation",
             "Mention any materials to review beforehand",
@@ -414,24 +414,49 @@ async def _call_claude_assist(
     score_info = f"\nAI lead score: {ai_score}/100" if ai_score is not None else ""
     summary_info = f"\nAI summary: {ai_summary}" if ai_summary else ""
 
+    # Intelligence signals (Sprint 8)
+    intel_lines = []
+    if lead_data.get("close_probability") is not None:
+        intel_lines.append(f"- Close probability: {lead_data['close_probability']}%")
+    if lead_data.get("days_in_stage") is not None:
+        intel_lines.append(f"- Days in current stage: {lead_data['days_in_stage']}")
+    if lead_data.get("stage_leak_message"):
+        intel_lines.append(f"- WARNING: {lead_data['stage_leak_message']}")
+
+    # Org conversion context
+    org_context_lines = []
+    if org_data.get("conversion_rate") is not None:
+        org_context_lines.append(f"- Org conversion rate: {org_data['conversion_rate']}%")
+    if org_data.get("avg_days_to_close") is not None:
+        org_context_lines.append(f"- Avg days to close: {org_data['avg_days_to_close']}")
+
+    intel_section = "\n".join(intel_lines)
+    if intel_section:
+        intel_section = f"\n\nIntelligence signals:\n{intel_section}"
+
+    org_context_section = "\n".join(org_context_lines)
+    if org_context_section:
+        org_context_section = f"\n{org_context_section}"
+
     prompt = (
         f"You are an expert sales coach for the {industry_name} industry.\n\n"
         f"Business context:\n"
         f"- Average deal value: ${avg_deal:,.0f}\n"
         f"- Close rate: {close_rate}%\n"
-        f"{scoring_info}\n\n"
+        f"{scoring_info}{org_context_section}\n\n"
         f"Lead information:\n"
         f"- Name: {name}\n"
         f"- Current pipeline stage: {stage}\n"
         f"- Form answers: {answers_str}\n"
-        f"{score_info}{summary_info}\n\n"
+        f"{score_info}{summary_info}{intel_section}\n\n"
         "Generate a conversion assist package as a JSON object with these exact keys:\n"
         "- \"next_action\": 1-2 sentence recommended next action for the sales rep\n"
         "- \"sms_script\": ready-to-send SMS message (under 160 chars, personalized)\n"
         "- \"email_script\": ready-to-send email body (3-5 sentences, personalized)\n"
         "- \"call_talking_points\": array of 4 bullet points for a phone call\n\n"
         "Be specific to this lead's situation, stage, and industry. "
-        "Use their name. Reference their specific interests from the form answers.\n\n"
+        "Use their name. Reference their specific interests from the form answers. "
+        "If intelligence signals show risk (low probability, stale lead), prioritize urgency in your recommendations.\n\n"
         "Respond with ONLY valid JSON, no other text."
     )
 

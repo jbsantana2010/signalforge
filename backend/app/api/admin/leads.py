@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import get_current_user, resolve_active_org_id
 from app.database import get_db
-from app.models.schemas import LeadDetail, LeadListItem, LeadListResponse, LeadStageUpdateRequest
-from app.services.lead_service import get_lead_detail, get_leads
+from app.models.schemas import LeadDetail, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem
+from app.services.lead_service import get_lead_detail, get_leads, get_stage_history, insert_stage_history, update_pipeline_fields
+from app.services.lead_intelligence_service import compute_lead_intelligence, intelligence_to_dict
 
-VALID_STAGES = {"new", "contacted", "qualified", "appointment", "won", "lost"}
+VALID_STAGES = {"new", "contacted", "qualified", "proposal", "won", "lost"}
 
 router = APIRouter()
 
@@ -60,6 +61,7 @@ async def update_lead_stage(
     lead_id: UUID,
     body: LeadStageUpdateRequest,
     org_id: str = Depends(resolve_active_org_id),
+    current_user: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     if body.stage not in VALID_STAGES:
@@ -68,56 +70,114 @@ async def update_lead_stage(
     if body.stage == "won" and not body.deal_amount:
         raise HTTPException(status_code=400, detail="deal_amount is required when stage is 'won'")
 
-    deal_amount = body.deal_amount if body.stage == "won" else None
+    # Outcome reason required for won/lost
+    if body.stage in ("won", "lost") and not body.outcome_reason:
+        raise HTTPException(status_code=400, detail="outcome_reason is required when closing a deal (won/lost)")
 
-    result = await conn.fetchrow(
-        """
-        UPDATE leads
-        SET stage = $1, deal_amount = $2, stage_updated_at = NOW()
-        WHERE id = $3 AND org_id = $4
-        RETURNING id, org_id, funnel_id, language, answers_json, source_json,
-                  score, is_spam, created_at,
-                  tags, priority, ai_summary, ai_score,
-                  email_status, sms_status, call_status, call_attempts,
-                  contact_status, last_contacted_at,
-                  stage, deal_amount, stage_updated_at
-        """,
-        body.stage,
-        deal_amount,
-        str(lead_id),
-        org_id,
+    # Get current stage before update
+    current_stage = await conn.fetchval(
+        "SELECT stage FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
     )
-    if not result:
+    if current_stage is None:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    import json
-    answers = json.loads(result["answers_json"]) if isinstance(result["answers_json"], str) else result["answers_json"]
-    source = json.loads(result["source_json"]) if isinstance(result["source_json"], str) else result["source_json"]
+    deal_amount = body.deal_amount if body.deal_amount is not None else None
 
-    return LeadDetail(
-        id=result["id"],
-        org_id=result["org_id"],
-        funnel_id=result["funnel_id"],
-        language=result["language"],
-        answers_json=answers,
-        source_json=source,
-        score=float(result["score"]) if result["score"] is not None else None,
-        is_spam=result["is_spam"],
-        created_at=result["created_at"],
-        tags=list(result["tags"]) if result["tags"] else None,
-        priority=result["priority"],
-        ai_summary=result["ai_summary"],
-        ai_score=result["ai_score"],
-        email_status=result["email_status"],
-        sms_status=result["sms_status"],
-        call_status=result["call_status"],
-        call_attempts=result["call_attempts"] or 0,
-        contact_status=result["contact_status"],
-        last_contacted_at=result["last_contacted_at"],
-        stage=result["stage"] or "new",
-        deal_amount=float(result["deal_amount"]) if result["deal_amount"] is not None else None,
-        stage_updated_at=result["stage_updated_at"],
+    # Set closed_at when transitioning to won/lost
+    from datetime import datetime, timezone
+    closed_at = None
+    if body.stage in ("won", "lost") and (current_stage or "new") not in ("won", "lost"):
+        closed_at = datetime.now(timezone.utc)
+
+    updated = await update_pipeline_fields(
+        conn=conn,
+        org_id=org_id,
+        lead_id=str(lead_id),
+        stage=body.stage,
+        deal_amount=deal_amount,
+        next_action_at=body.next_action_at,
+        next_action_note=body.next_action_note,
+        outcome_reason=body.outcome_reason if body.stage in ("won", "lost") else None,
+        outcome_note=body.outcome_note if body.stage in ("won", "lost") else None,
+        closed_at=closed_at,
     )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Insert history only if stage actually changed
+    history_event_id = None
+    if (current_stage or "new") != body.stage:
+        history_event_id = await insert_stage_history(
+            conn=conn,
+            org_id=org_id,
+            lead_id=str(lead_id),
+            from_stage=current_stage or "new",
+            to_stage=body.stage,
+            changed_by_user_id=current_user.get("user_id"),
+            reason=body.reason,
+        )
+
+    # Compute intelligence and merge into lead
+    intel = compute_lead_intelligence(
+        stage=updated["stage"],
+        ai_score=updated.get("ai_score"),
+        deal_amount=updated.get("deal_amount"),
+        stage_updated_at=updated.get("stage_updated_at"),
+        last_contacted_at=updated.get("last_contacted_at"),
+        created_at=updated.get("created_at"),
+    )
+    updated.update(intelligence_to_dict(intel))
+
+    return LeadStageUpdateResponse(
+        lead=LeadDetail(**updated),
+        history_event_id=history_event_id,
+    )
+
+
+@router.get("/leads/{lead_id}/stage-history")
+async def get_lead_stage_history(
+    lead_id: UUID,
+    org_id: str = Depends(resolve_active_org_id),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Return recent stage history for a lead."""
+    lead = await conn.fetchval(
+        "SELECT id FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    history = await get_stage_history(conn, org_id, str(lead_id))
+    return {"history": [StageHistoryItem(**h) for h in history]}
+
+
+@router.get("/leads/{lead_id}/intelligence", response_model=LeadIntelligenceResponse)
+async def get_lead_intelligence(
+    lead_id: UUID,
+    org_id: str = Depends(resolve_active_org_id),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Compute live intelligence signals for a lead."""
+    row = await conn.fetchrow(
+        """SELECT stage, ai_score, deal_amount, stage_updated_at,
+                  last_contacted_at, created_at
+           FROM leads WHERE id = $1 AND org_id = $2""",
+        str(lead_id), org_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    intel = compute_lead_intelligence(
+        stage=row["stage"] or "new",
+        ai_score=row["ai_score"],
+        deal_amount=float(row["deal_amount"]) if row["deal_amount"] is not None else None,
+        stage_updated_at=row["stage_updated_at"],
+        last_contacted_at=row["last_contacted_at"],
+        created_at=row["created_at"],
+    )
+    return LeadIntelligenceResponse(**intelligence_to_dict(intel))
 
 
 @router.post("/leads/{lead_id}/assist")
@@ -161,6 +221,22 @@ async def lead_conversion_assist(
         ),
     }
 
+    # Compute intelligence for enriched assist
+    lead_full = await conn.fetchrow(
+        """SELECT stage, ai_score, deal_amount, stage_updated_at,
+                  last_contacted_at, created_at
+           FROM leads WHERE id = $1 AND org_id = $2""",
+        str(lead_id), org_id,
+    )
+    intel = compute_lead_intelligence(
+        stage=lead_full["stage"] or "new",
+        ai_score=lead_full["ai_score"],
+        deal_amount=float(lead_full["deal_amount"]) if lead_full["deal_amount"] is not None else None,
+        stage_updated_at=lead_full["stage_updated_at"],
+        last_contacted_at=lead_full["last_contacted_at"],
+        created_at=lead_full["created_at"],
+    )
+
     lead_data = {
         "name": answers.get("name", "there"),
         "stage": lead_row["stage"] or "new",
@@ -168,7 +244,20 @@ async def lead_conversion_assist(
         "ai_score": lead_row["ai_score"],
         "ai_summary": lead_row["ai_summary"],
         "service": answers.get("service", ""),
+        "close_probability": intel.close_probability,
+        "days_in_stage": intel.days_in_stage,
+        "stage_leak_warning": intel.stage_leak_warning,
+        "stage_leak_message": intel.stage_leak_message,
     }
+
+    # Add org conversion context
+    from app.services.analytics_service import get_pipeline_metrics
+    try:
+        pipeline = await get_pipeline_metrics(conn, org_id)
+        org_data["conversion_rate"] = pipeline["totals"]["conversion_rate"]
+        org_data["avg_days_to_close"] = pipeline["velocity"]["avg_days_to_close"]
+    except Exception:
+        pass
 
     from app.services.ai_service import generate_conversion_assist
     result = await generate_conversion_assist(org_data, lead_data)

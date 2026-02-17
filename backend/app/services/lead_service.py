@@ -157,7 +157,9 @@ async def get_lead_detail(
                tags, priority, ai_summary, ai_score,
                email_status, sms_status, call_status, call_attempts,
                contact_status, last_contacted_at,
-               stage, deal_amount, stage_updated_at
+               stage, deal_amount, stage_updated_at,
+               next_action_at, next_action_note,
+               outcome_reason, outcome_note, closed_at
         FROM leads
         WHERE id = $1 AND org_id = $2
         """,
@@ -193,7 +195,144 @@ async def get_lead_detail(
         "stage": row["stage"] or "new",
         "deal_amount": float(row["deal_amount"]) if row["deal_amount"] is not None else None,
         "stage_updated_at": row["stage_updated_at"],
+        "next_action_at": row["next_action_at"],
+        "next_action_note": row["next_action_note"],
+        "outcome_reason": row["outcome_reason"],
+        "outcome_note": row["outcome_note"],
+        "closed_at": row["closed_at"],
     }
+
+
+async def update_pipeline_fields(
+    conn: asyncpg.Connection,
+    org_id: str,
+    lead_id: str,
+    stage: str,
+    deal_amount: float | None = None,
+    next_action_at=None,
+    next_action_note: str | None = None,
+    outcome_reason: str | None = None,
+    outcome_note: str | None = None,
+    closed_at=None,
+) -> dict | None:
+    """Update pipeline-related fields on a lead. Returns full lead dict or None."""
+    row = await conn.fetchrow(
+        """
+        UPDATE leads
+        SET stage = $1,
+            deal_amount = $2,
+            stage_updated_at = NOW(),
+            next_action_at = $3,
+            next_action_note = $4,
+            outcome_reason = $5,
+            outcome_note = $6,
+            closed_at = $7
+        WHERE id = $8 AND org_id = $9
+        RETURNING id, org_id, funnel_id, language, answers_json, source_json,
+                  score, is_spam, created_at,
+                  tags, priority, ai_summary, ai_score,
+                  email_status, sms_status, call_status, call_attempts,
+                  contact_status, last_contacted_at,
+                  stage, deal_amount, stage_updated_at,
+                  next_action_at, next_action_note,
+                  outcome_reason, outcome_note, closed_at
+        """,
+        stage,
+        deal_amount,
+        next_action_at,
+        next_action_note,
+        outcome_reason,
+        outcome_note,
+        closed_at,
+        lead_id,
+        org_id,
+    )
+    if not row:
+        return None
+
+    answers = json.loads(row["answers_json"]) if isinstance(row["answers_json"], str) else row["answers_json"]
+    source = json.loads(row["source_json"]) if isinstance(row["source_json"], str) else row["source_json"]
+
+    return {
+        "id": row["id"],
+        "org_id": row["org_id"],
+        "funnel_id": row["funnel_id"],
+        "language": row["language"],
+        "answers_json": answers,
+        "source_json": source,
+        "score": float(row["score"]) if row["score"] is not None else None,
+        "is_spam": row["is_spam"],
+        "created_at": row["created_at"],
+        "tags": list(row["tags"]) if row["tags"] else None,
+        "priority": row["priority"],
+        "ai_summary": row["ai_summary"],
+        "ai_score": row["ai_score"],
+        "email_status": row["email_status"],
+        "sms_status": row["sms_status"],
+        "call_status": row["call_status"],
+        "call_attempts": row["call_attempts"] or 0,
+        "contact_status": row["contact_status"],
+        "last_contacted_at": row["last_contacted_at"],
+        "stage": row["stage"] or "new",
+        "deal_amount": float(row["deal_amount"]) if row["deal_amount"] is not None else None,
+        "stage_updated_at": row["stage_updated_at"],
+        "next_action_at": row["next_action_at"],
+        "next_action_note": row["next_action_note"],
+        "outcome_reason": row["outcome_reason"],
+        "outcome_note": row["outcome_note"],
+        "closed_at": row["closed_at"],
+    }
+
+
+async def insert_stage_history(
+    conn: asyncpg.Connection,
+    org_id: str,
+    lead_id: str,
+    from_stage: str | None,
+    to_stage: str,
+    changed_by_user_id: str | None = None,
+    reason: str | None = None,
+    note: str | None = None,
+) -> str:
+    """Insert a stage transition record. Returns the new history row id."""
+    row_id = await conn.fetchval(
+        """
+        INSERT INTO lead_stage_history
+            (org_id, lead_id, from_stage, to_stage, changed_by_user_id, reason, note)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+        """,
+        org_id,
+        lead_id,
+        from_stage,
+        to_stage,
+        changed_by_user_id,
+        reason,
+        note,
+    )
+    return str(row_id)
+
+
+async def get_stage_history(
+    conn: asyncpg.Connection,
+    org_id: str,
+    lead_id: str,
+    limit: int = 5,
+) -> list[dict]:
+    """Return recent stage history entries for a lead."""
+    rows = await conn.fetch(
+        """
+        SELECT id, from_stage, to_stage, changed_by_user_id, reason, note, created_at
+        FROM lead_stage_history
+        WHERE lead_id = $1 AND org_id = $2
+        ORDER BY created_at DESC
+        LIMIT $3
+        """,
+        lead_id,
+        org_id,
+        limit,
+    )
+    return [dict(r) for r in rows]
 
 
 async def get_funnels_for_org(conn: asyncpg.Connection, org_id: str) -> list[dict]:

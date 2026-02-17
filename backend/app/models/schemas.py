@@ -99,11 +99,41 @@ class LeadDetail(BaseModel):
     stage: str = "new"
     deal_amount: Optional[float] = None
     stage_updated_at: datetime | None = None
+    next_action_at: datetime | None = None
+    next_action_note: str | None = None
+    outcome_reason: str | None = None
+    outcome_note: str | None = None
+    closed_at: datetime | None = None
+    close_probability: int | None = None
+    days_in_stage: float | None = None
+    is_stale: bool | None = None
+    stage_leak_warning: bool | None = None
+    stage_leak_message: str | None = None
 
 
 class LeadStageUpdateRequest(BaseModel):
     stage: str
     deal_amount: Optional[float] = None
+    next_action_at: datetime | None = None
+    next_action_note: str | None = None
+    reason: str | None = None
+    outcome_reason: str | None = None
+    outcome_note: str | None = None
+
+
+class StageHistoryItem(BaseModel):
+    id: UUID
+    from_stage: str | None = None
+    to_stage: str
+    changed_by_user_id: UUID | None = None
+    reason: str | None = None
+    note: str | None = None
+    created_at: datetime
+
+
+class LeadStageUpdateResponse(BaseModel):
+    lead: LeadDetail
+    history_event_id: UUID | None = None
 
 
 # --- Admin: Auth ---
@@ -296,6 +326,56 @@ class IndustryTemplateDetail(BaseModel):
     default_close_rate_percent: float
 
 
+# --- Admin: Pipeline Metrics (Sprint 7) ---
+
+
+class PipelineTotals(BaseModel):
+    leads: int = 0
+    won: int = 0
+    lost: int = 0
+    conversion_rate: float = 0.0
+
+
+class PipelineStages(BaseModel):
+    new: int = 0
+    contacted: int = 0
+    qualified: int = 0
+    proposal: int = 0
+    won: int = 0
+    lost: int = 0
+
+
+class PipelineValues(BaseModel):
+    total_value: float = 0.0
+    won_value: float = 0.0
+    avg_deal_value: float = 0.0
+
+
+class PipelineAvgDaysInStage(BaseModel):
+    new: float | None = None
+    contacted: float | None = None
+    qualified: float | None = None
+    proposal: float | None = None
+
+
+class PipelineVelocity(BaseModel):
+    avg_days_to_close: float | None = None
+    avg_days_in_stage: PipelineAvgDaysInStage = PipelineAvgDaysInStage()
+
+
+class PipelineActionability(BaseModel):
+    overdue_next_actions: int = 0
+    stale_leads: int = 0
+
+
+class PipelineMetricsResponse(BaseModel):
+    totals: PipelineTotals = PipelineTotals()
+    stages: PipelineStages = PipelineStages()
+    pipeline: PipelineValues = PipelineValues()
+    velocity: PipelineVelocity = PipelineVelocity()
+    actionability: PipelineActionability = PipelineActionability()
+
+
 # --- Admin: Campaigns ---
 
 
@@ -317,3 +397,20 @@ class CampaignListItem(BaseModel):
     utm_campaign: str
     ad_spend: float
     created_at: datetime
+
+
+# --- Lead Intelligence (Sprint 8) ---
+
+
+class LeadIntelligenceResponse(BaseModel):
+    close_probability: int
+    days_in_stage: float | None = None
+    is_stale: bool = False
+    stage_leak_warning: bool = False
+    stage_leak_message: str | None = None
+
+
+class OrgInsightsResponse(BaseModel):
+    summary: str
+    highlights: list[str]
+    mode: str = "stub"
