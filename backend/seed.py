@@ -624,9 +624,84 @@ async def main():
             )
             print(f"  Lead 1 ({first_lead_id}) → stage=won, deal_amount=$8,400")
 
+        # ── Warder org + website-demo funnel (Basin webhook target) ──────────
+        print("Creating Warder org...")
+        warder_org_id = await conn.fetchval(
+            """
+            INSERT INTO orgs (name, slug, branding, agency_id, display_name, avg_deal_value, close_rate_percent)
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            "Warder AI",
+            "warder",
+            json.dumps({"primary_color": "#1e293b"}),
+            agency_id,
+            "Warder AI",
+            10000,
+            15,
+        )
+        print(f"  Warder org: {warder_org_id}")
+
+        warder_funnel_schema = {
+            "slug": "website-demo",
+            "languages": ["en"],
+            "steps": [
+                {
+                    "id": "contact",
+                    "title": {"en": "Request a Demo"},
+                    "fields": [
+                        {"key": "name", "type": "text", "required": False, "label": {"en": "Name"}},
+                        {"key": "email", "type": "email", "required": False, "label": {"en": "Email"}},
+                        {"key": "phone", "type": "tel", "required": False, "label": {"en": "Phone"}},
+                        {"key": "company", "type": "text", "required": False, "label": {"en": "Company"}},
+                        {"key": "website", "type": "text", "required": False, "label": {"en": "Website"}},
+                        {"key": "message", "type": "textarea", "required": False, "label": {"en": "Message"}},
+                    ],
+                }
+            ],
+        }
+
+        warder_funnel_id = await conn.fetchval(
+            """
+            INSERT INTO funnels (org_id, slug, name, schema_json, languages)
+            VALUES ($1, $2, $3, $4::jsonb, $5)
+            ON CONFLICT (slug) DO UPDATE SET schema_json = EXCLUDED.schema_json, org_id = EXCLUDED.org_id
+            RETURNING id
+            """,
+            warder_org_id,
+            "website-demo",
+            "Warder Website Demo Request",
+            json.dumps(warder_funnel_schema),
+            ["en"],
+        )
+
+        await conn.execute(
+            """
+            UPDATE funnels
+            SET sequence_enabled = $1, sequence_config = $2::jsonb,
+                auto_email_enabled = $3, auto_sms_enabled = $4, auto_call_enabled = $5
+            WHERE id = $6
+            """,
+            False,
+            json.dumps({
+                "steps": [
+                    {"delay_minutes": 0, "message": "Thanks for your demo request, {{name}}! We'll be in touch shortly."},
+                    {"delay_minutes": 1440, "message": "Hi {{name}}, following up on your Warder demo request. Any questions?"},
+                ]
+            }),
+            False,
+            False,
+            False,
+            warder_funnel_id,
+        )
+        print(f"  Warder funnel 'website-demo': {warder_funnel_id}")
+        # ─────────────────────────────────────────────────────────────────────
+
         print("\nSeed complete!")
         print("  Login: admin@solarprime.com / admin123")
         print("  Funnel slug: solar-prime")
+        print("  Basin webhook target: POST /public/leads/basin (org=warder, funnel=website-demo)")
 
     finally:
         await conn.close()

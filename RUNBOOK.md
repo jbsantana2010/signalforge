@@ -102,6 +102,61 @@ cd backend
 python seed.py
 ```
 
+The seed now also creates:
+- **Org**: Warder AI (slug: `warder`)
+- **Funnel**: `website-demo` (Basin webhook target)
+
+## Basin Webhook – Warder Lead Intake
+
+### POST /public/leads/basin
+
+Receives demo request submissions from warderai.com via Basin and creates them as real leads in the Warder pipeline.
+
+### Test locally with curl
+
+```bash
+curl -X POST http://localhost:8000/public/leads/basin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "5551234567",
+    "company": "Acme Corp",
+    "message": "I would like a demo",
+    "page": "https://warderai.com/demo",
+    "referrer": "https://google.com"
+  }'
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "lead_id": "<uuid>",
+  "org_slug": "warder",
+  "funnel_slug": "website-demo"
+}
+```
+
+Test duplicate suppression (run the same command twice within 5 minutes):
+```json
+{ "status": "duplicate_ignored" }
+```
+
+### Connect Basin webhook in production
+
+1. Log in to your Basin account at [usebasin.com](https://usebasin.com).
+2. Open the form you want to forward (your warderai.com demo form).
+3. Go to **Integrations → Webhooks**.
+4. Add a new webhook:
+   - **URL**: `https://your-api-domain.com/public/leads/basin`
+   - **Method**: `POST`
+   - **Format**: `JSON`
+5. Save. Basin will POST each new submission to this endpoint.
+6. Confirm the first real submission appears in the Warder org lead list in the admin dashboard.
+
+> No auth or signature validation is required at this stage. Both can be added later without changing the endpoint contract.
+
 ## Sprint 2: Automation Engine
 
 ### New Environment Variables

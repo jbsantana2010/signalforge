@@ -76,6 +76,50 @@ Submit a lead from a funnel.
 
 ---
 
+### POST /public/leads/basin
+
+Receive Basin form webhook submissions from warderai.com. Creates a lead directly in the Warder org under the `website-demo` funnel. No auth required. No signature validation (future work).
+
+**Request Body (Basin webhook JSON):**
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "phone": "5551234567",
+  "company": "Acme Corp",
+  "website": "https://acme.com",
+  "message": "I'd like a product demo",
+  "lang": "en",
+  "page": "https://warderai.com/demo",
+  "referrer": "https://google.com",
+  "timestamp": "2026-03-06T12:00:00Z"
+}
+```
+
+All fields are optional. Unknown fields are ignored. Only `name` and `email` together are used for deduplicate detection.
+
+**Response 200 (created):**
+```json
+{
+  "status": "ok",
+  "lead_id": "uuid-of-new-lead",
+  "org_slug": "warder",
+  "funnel_slug": "website-demo"
+}
+```
+
+**Response 200 (duplicate suppressed):**
+```json
+{
+  "status": "duplicate_ignored"
+}
+```
+Returned when the same `name` + `email` pair arrives within 5 minutes. No lead is created.
+
+**Response 404:** Org `warder` or funnel `website-demo` not found (run `python seed.py` to create them).
+
+---
+
 ## Admin Endpoints (JWT Required)
 
 All admin endpoints require `Authorization: Bearer <token>` header.
