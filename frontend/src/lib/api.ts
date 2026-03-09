@@ -309,6 +309,26 @@ export async function createAgencyOrg(token: string, data: {
   return res.json();
 }
 
+export async function fetchLeadEngagement(token: string, leadId: string) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/engagement`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch engagement');
+  return res.json();
+}
+
+export async function runEngagementWorker(token: string) {
+  const res = await authFetch(`${API_BASE}/admin/ops/engagement/run`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to run engagement worker');
+  }
+  return res.json();
+}
+
 export async function createOrgFunnel(token: string, orgId: string, data: {
   name: string; slug: string; enable_sequences?: boolean;
   enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;

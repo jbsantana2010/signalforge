@@ -217,3 +217,58 @@ export interface OrgListItem {
   support_email: string | null;
   created_at: string | null;
 }
+
+// --- Engagement Engine V1 ---
+
+export interface EngagementPlan {
+  id: string;
+  lead_id: string;
+  org_id: string;
+  funnel_id: string | null;
+  status: string;
+  current_step: number;
+  paused: boolean;
+  escalation_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EngagementStep {
+  id: string;
+  plan_id: string;
+  step_order: number;
+  channel: string;
+  action_type: string;
+  scheduled_for: string;
+  executed_at: string | null;
+  status: string;
+  template_key: string | null;
+  generated_content_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface EngagementEvent {
+  id: string;
+  lead_id: string;
+  org_id: string;
+  channel: string;
+  event_type: string;
+  direction: string;
+  content: string | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface LeadEngagementResponse {
+  plan: EngagementPlan | null;
+  steps: EngagementStep[];
+  events: EngagementEvent[];
+}
+
+export interface EngagementWorkerResult {
+  status: string;
+  processed: number;
+  sent: number;
+  skipped_missing_config: number;
+  failed: number;
+}

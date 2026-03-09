@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence } from '@/lib/api';
-import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence } from '@/types/admin';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement } from '@/lib/api';
+import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse } from '@/types/admin';
 
 interface AutomationEvent {
   event_type: string;
@@ -87,6 +87,9 @@ export default function LeadDetailPage() {
   // Intelligence
   const [intelligence, setIntelligence] = useState<LeadIntelligence | null>(null);
 
+  // Engagement
+  const [engagement, setEngagement] = useState<LeadEngagementResponse | null>(null);
+
   // Stage management
   const [selectedStage, setSelectedStage] = useState('new');
   const [dealAmount, setDealAmount] = useState('');
@@ -135,6 +138,12 @@ export default function LeadDetailPage() {
           setIntelligence(intel);
         } catch {
           // Intelligence is optional
+        }
+        try {
+          const eng = await fetchLeadEngagement(token, params.id as string);
+          setEngagement(eng);
+        } catch {
+          // Engagement is optional
         }
       } catch {
         setError('Failed to load lead details');
@@ -681,6 +690,67 @@ export default function LeadDetailPage() {
               </div>
             )}
 
+            {/* Engagement Timeline */}
+            {engagement && (engagement.plan || engagement.steps.length > 0 || engagement.events.length > 0) && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Engagement Timeline</h2>
+
+                {/* Plan status */}
+                {engagement.plan && (
+                  <div className="flex items-center gap-3 mb-5 pb-4 border-b">
+                    <span className="text-sm text-gray-500">Plan status:</span>
+                    <EngagementStatusBadge status={engagement.plan.status} />
+                    <span className="text-sm text-gray-500">Step {engagement.plan.current_step} of {engagement.steps.length}</span>
+                    {engagement.plan.paused && (
+                      <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">Paused</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Scheduled steps */}
+                {engagement.steps.length > 0 && (
+                  <div className="mb-5">
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Scheduled Steps</h3>
+                    <div className="space-y-2">
+                      {engagement.steps.map((step) => (
+                        <EngagementStepRow key={step.id} step={step} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Engagement events */}
+                {engagement.events.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Events</h3>
+                    <div className="space-y-2">
+                      {engagement.events.map((ev) => (
+                        <div key={ev.id} className="flex items-start justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <ChannelBadge channel={ev.channel} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-800 capitalize">
+                                  {ev.event_type.replace(/_/g, ' ')}
+                                </span>
+                                <span className="text-xs text-gray-400 capitalize">{ev.direction}</span>
+                              </div>
+                              {ev.content && (
+                                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-sm">{ev.content}</p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-400 whitespace-nowrap ml-4">
+                            {new Date(ev.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Answers */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Answers</h2>
@@ -770,6 +840,94 @@ export default function LeadDetailPage() {
         )}
       </div>
     </AdminLayout>
+  );
+}
+
+function EngagementStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active:                  'bg-green-100 text-green-800',
+    pending:                 'bg-yellow-100 text-yellow-800',
+    sent:                    'bg-green-100 text-green-800',
+    skipped_missing_config:  'bg-orange-100 text-orange-800',
+    failed:                  'bg-red-100 text-red-800',
+    completed:               'bg-blue-100 text-blue-800',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function ChannelBadge({ channel }: { channel: string }) {
+  const colors: Record<string, string> = {
+    sms:    'bg-blue-100 text-blue-700',
+    email:  'bg-purple-100 text-purple-700',
+    call:   'bg-teal-100 text-teal-700',
+    system: 'bg-gray-100 text-gray-600',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full uppercase ${colors[channel] || 'bg-gray-100 text-gray-600'}`}>
+      {channel}
+    </span>
+  );
+}
+
+function EngagementStepRow({ step }: { step: import('@/types/admin').EngagementStep }) {
+  const [showPreview, setShowPreview] = useState(false);
+  const content = step.generated_content_json as Record<string, string> | null;
+  const hasPreview = content && (content.sms_body || content.email_subject);
+
+  return (
+    <div className="bg-gray-50 rounded-lg p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-gray-400 w-8">#{step.step_order}</span>
+          <ChannelBadge channel={step.channel} />
+          <span className="text-xs text-gray-500">
+            {new Date(step.scheduled_for).toLocaleString()}
+          </span>
+          {step.executed_at && (
+            <span className="text-xs text-gray-400">
+              executed {new Date(step.executed_at).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasPreview && (
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              {showPreview ? 'Hide' : 'Preview'}
+            </button>
+          )}
+          <EngagementStatusBadge status={step.status} />
+        </div>
+      </div>
+      {showPreview && hasPreview && (
+        <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+          {content?.sms_body && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">SMS</span>
+              <p className="text-xs text-gray-700 mt-0.5 bg-white rounded p-2 border">{content.sms_body}</p>
+            </div>
+          )}
+          {content?.email_subject && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">Subject</span>
+              <p className="text-xs text-gray-700 mt-0.5 font-medium">{content.email_subject}</p>
+            </div>
+          )}
+          {content?.email_body && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">Body</span>
+              <p className="text-xs text-gray-600 mt-0.5 bg-white rounded p-2 border whitespace-pre-wrap line-clamp-4">{content.email_body}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

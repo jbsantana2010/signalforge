@@ -21,7 +21,8 @@ AI-powered lead response and follow-up system built for agencies and high-ticket
 | **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
 | **Client Onboarding** | One-click org + funnel provisioning from agency admin UI with industry template selection |
 | **Intelligent Routing** | Rule-based tag and priority assignment from lead answers |
-| **Ops Readiness** | Health endpoint and status page for deployment verification |
+| **Engagement Engine V1.1** | 4-step follow-up plans (SMS+email) auto-created per lead; manual worker trigger via Ops page; message preview in lead timeline |
+| **Ops Readiness** | Health endpoint, status page, and manual engagement worker trigger for deployment verification |
 
 ## Architecture
 
@@ -197,9 +198,10 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | Industry Templates | Vertical-specific profiles for onboarding | Done |
 | Pilot Ops | Health checks, status page, deployment runbook | Done |
 | Stripe Billing | Per-org subscription management | Planned |
+| **Engagement Engine V1** | Automated follow-up plans: SMS + email delivery pipeline, step scheduler, event logging, per-lead Engagement Timeline UI | Active |
 | AI Voice Agent | Conversational AI for inbound/outbound calls | Planned |
 | Advanced Analytics | Conversion funnels, rep performance, cohort analysis | Planned |
-| Event Timeline | Per-lead activity feed with full automation history | Planned |
+| Inbound Reply Handling | Classify inbound SMS/email replies (objection, intent, opt-out) | Planned |
 
 ## License
 

@@ -158,12 +158,32 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                 await log_event(conn, org_id, lead_id, "sequence_scheduled", "failed",
                                 {"error": str(e)})
 
-        # h) Process any due sequences (outside conn block)
+            # h) Create engagement plan
+            try:
+                from app.services.engagement_service import create_engagement_plan
+                await create_engagement_plan(
+                    conn,
+                    lead_id=lead_id,
+                    org_id=org_id,
+                    funnel_id=str(lead["funnel_id"]) if lead.get("funnel_id") else None,
+                    lead_data=lead_dict,
+                )
+            except Exception as e:
+                logger.error(f"Engagement plan creation failed: {e}")
+
+        # i) Process any due sequences (outside conn block)
         try:
             from app.services.sequence_worker import process_due_sequences
             await process_due_sequences(pool)
         except Exception as e:
             logger.error(f"Sequence processing failed: {e}")
+
+        # j) Process due engagement steps (outside conn block)
+        try:
+            from app.services.engagement_worker import process_due_engagement_steps
+            await process_due_engagement_steps(pool)
+        except Exception as e:
+            logger.error(f"Engagement worker failed: {e}")
 
     except Exception as e:
         logger.error(f"Automation failed for lead {lead_id}: {e}")

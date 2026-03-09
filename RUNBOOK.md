@@ -536,3 +536,114 @@ Run `python seed.py` to apply `006_org_metrics.sql` and seed default values (dea
 |--------|----------|------|-------------|
 | GET | /admin/dashboard | JWT + X-ORG-ID | Dashboard metrics |
 | PATCH | /admin/org/settings | JWT + X-ORG-ID | Update deal value & close rate |
+
+---
+
+## Engagement Engine V1
+
+Migration: `013_engagement.sql` adds three tables: `engagement_plans`, `engagement_steps`, `engagement_events`.
+
+### How it works
+
+1. When a lead is processed through `automation_service.py`, `create_engagement_plan()` is called to build a plan with 4 default follow-up steps.
+2. `process_due_engagement_steps()` immediately fires any steps whose `scheduled_for` has passed (Step 1 fires ~30 seconds after lead creation).
+3. Steps attempt delivery via existing Twilio (SMS) and SMTP (email) paths.
+4. If provider config is missing, steps are marked `skipped_missing_config` — nothing crashes.
+5. All delivery attempts are logged to `engagement_events`.
+
+### Default follow-up timing
+
+| Step | Channel | Delay |
+|------|---------|-------|
+| 1    | SMS     | +30 seconds |
+| 2    | Email   | +2 minutes  |
+| 3    | SMS     | +1 hour     |
+| 4    | Email   | +24 hours   |
+
+### Admin UI
+
+Lead detail page → **Engagement Timeline** section shows:
+- Plan status and current step progress
+- All scheduled steps with channel badge, scheduled time, and status badge
+- All engagement events with timestamp, channel, event type, and content snippet
+
+### Checking engagement data
+
+```sql
+-- View plans for a lead
+SELECT * FROM engagement_plans WHERE lead_id = '<uuid>';
+
+-- View steps
+SELECT step_order, channel, scheduled_for, status, executed_at
+FROM engagement_steps WHERE plan_id = '<plan_uuid>' ORDER BY step_order;
+
+-- View events
+SELECT channel, event_type, direction, content, created_at
+FROM engagement_events WHERE lead_id = '<uuid>' ORDER BY created_at;
+```
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/leads/{id}/engagement | JWT + X-ORG-ID | Plan + steps + events for a lead |
+
+### Current Limitations (V1)
+
+- No inbound SMS/email reply classification
+- No AI-generated message content (deterministic templates only)
+- Call channel not implemented (marked skipped)
+- No escalation logic
+- Worker runs inline with lead submission — no background scheduler yet
+
+---
+
+## Engagement Engine V1.1 — Scheduler + Reliability
+
+### What Changed
+
+- `process_due_engagement_steps()` now returns a summary dict: `{processed, sent, skipped_missing_config, failed}`
+- Call channel steps are explicitly marked `skipped_missing_config` with reason `call_not_supported_v1` logged
+- All engagement events include richer metadata: `step_id`, `step_order`, `plan_id`, `status`
+- `GET /admin/leads/{id}/engagement` never returns 500 — degrades gracefully to `{plan: null, steps: [], events: []}`
+- New endpoint `POST /admin/ops/engagement/run` triggers the worker manually
+- Admin Ops page (`/admin/ops`) has a "Run Due Engagement Steps" button with result summary panel
+- Engagement Timeline on lead detail shows "Preview" toggle per step to inspect SMS body and email content
+- Seed data enriched: step 2 is `skipped_missing_config`, events include `step_id` in metadata, `plan_created` event added
+
+### Manual Worker Trigger
+
+```bash
+# Trigger due engagement steps manually
+curl -X POST http://localhost:8000/admin/ops/engagement/run \
+  -H "Authorization: Bearer $TOKEN"
+
+# Response:
+# {
+#   "status": "ok",
+#   "processed": 2,
+#   "sent": 1,
+#   "skipped_missing_config": 1,
+#   "failed": 0
+# }
+```
+
+Or use the Ops UI: navigate to `/admin/ops` → click "Run Due Engagement Steps".
+
+### Testing Ops Flow
+
+1. Login as admin: `admin@solarprime.com / admin123`
+2. Navigate to `/admin/ops`
+3. Verify System Status shows DB connected, services configured/not
+4. Click "Run Due Engagement Steps"
+5. Verify result panel shows Processed / Sent / Skipped / Failed counts
+6. Navigate to a lead detail page → Engagement Timeline → click "Preview" on a step
+7. Verify SMS body or email subject/body appears inline
+
+### Current Limitations (V1.1)
+
+- No automatic cron scheduler — worker must be triggered manually via the Ops button or API
+- No inbound reply handling
+- No AI-generated message content (deterministic templates only)
+- Call channel not yet implemented (always `skipped_missing_config`)
+- No escalation logic

@@ -974,3 +974,141 @@ New fields: `tags` (list of strings), `priority` (string or null).
 ```
 
 New fields: `score_summary` (string or null), `tags` (list of strings), `priority` (string or null), `automation_log` (list of log entries).
+
+---
+
+## Engagement Engine V1
+
+### GET /admin/leads/{id}/engagement
+
+Returns the active engagement plan, scheduled steps, and engagement events for a lead.
+
+**Auth:** JWT + X-ORG-ID
+
+**Response 200:**
+```json
+{
+  "plan": {
+    "id": "uuid",
+    "lead_id": "uuid",
+    "org_id": "uuid",
+    "funnel_id": "uuid",
+    "status": "active",
+    "current_step": 1,
+    "paused": false,
+    "escalation_reason": null,
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "steps": [
+    {
+      "id": "uuid",
+      "plan_id": "uuid",
+      "step_order": 1,
+      "channel": "sms",
+      "action_type": "send",
+      "scheduled_for": "...",
+      "executed_at": "...",
+      "status": "sent",
+      "template_key": "intro_sms_1",
+      "generated_content_json": { "sms_body": "Hi ..." },
+      "created_at": "..."
+    }
+  ],
+  "events": [
+    {
+      "id": "uuid",
+      "lead_id": "uuid",
+      "org_id": "uuid",
+      "channel": "sms",
+      "event_type": "sms_sent",
+      "direction": "outbound",
+      "content": "Hi John, thanks for...",
+      "metadata_json": { "step_id": "uuid", "status": "sent" },
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+**Step statuses:** `pending` | `sent` | `skipped_missing_config` | `failed`
+
+**Default V1 step schedule (from plan creation):**
+- Step 1 — SMS  — now + 30 seconds
+- Step 2 — Email — now + 2 minutes
+- Step 3 — SMS  — now + 1 hour
+- Step 4 — Email — now + 24 hours
+
+**Current limitations (V1):**
+- No inbound SMS reply handling yet
+- No AI-generated content (deterministic templates only)
+- Call channel steps are skipped with `skipped_missing_config`
+- No escalation logic yet
+
+---
+
+## Engagement Engine V1.1 (Scheduler + Reliability)
+
+### POST /admin/ops/engagement/run
+
+Manually trigger processing of all due engagement steps for the active org.
+Admin-only. Not public.
+
+**Headers:** `Authorization: Bearer <token>`, `X-ORG-ID: <uuid>` (optional)
+
+**Request Body:** None
+
+**Response 200:**
+```json
+{
+  "status": "ok",
+  "processed": 3,
+  "sent": 2,
+  "skipped_missing_config": 1,
+  "failed": 0
+}
+```
+
+- `processed` — total steps evaluated this run
+- `sent` — successfully delivered
+- `skipped_missing_config` — delivery skipped (missing Twilio/SMTP config, or call channel)
+- `failed` — delivery attempted and failed
+
+```bash
+curl -X POST http://localhost:8000/admin/ops/engagement/run \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Engagement Event Metadata (V1.1)
+
+All events logged by the worker now include enriched metadata:
+
+```json
+{
+  "step_id": "uuid",
+  "step_order": 1,
+  "plan_id": "uuid",
+  "status": "sent"
+}
+```
+
+### Call Channel Behavior (V1.1)
+
+Call channel steps are always skipped with `skipped_missing_config`.
+The worker logs `call_not_supported_v1` as the reason. No crash occurs.
+
+### Engagement Empty State
+
+`GET /admin/leads/{id}/engagement` always returns a valid response even when no plan exists:
+
+```json
+{
+  "plan": null,
+  "steps": [],
+  "events": []
+}
+```
+
+Never returns 500 for missing data.

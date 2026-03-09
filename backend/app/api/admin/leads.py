@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import get_current_user, resolve_active_org_id
 from app.database import get_db
-from app.models.schemas import LeadDetail, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem
+from app.models.schemas import LeadDetail, LeadEngagementResponse, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem, EngagementPlanItem, EngagementStepItem, EngagementEventItem
 from app.services.lead_service import get_lead_detail, get_leads, get_stage_history, insert_stage_history, update_pipeline_fields
 from app.services.lead_intelligence_service import compute_lead_intelligence, intelligence_to_dict
 
@@ -281,6 +281,98 @@ async def get_sequences(
     from app.services.lead_service import get_lead_sequences
     sequences = await get_lead_sequences(conn, str(lead_id))
     return sequences
+
+
+@router.get("/leads/{lead_id}/engagement", response_model=LeadEngagementResponse)
+async def get_lead_engagement(
+    lead_id: UUID,
+    org_id: str = Depends(resolve_active_org_id),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Return engagement plan, steps, and events for a lead.
+    Returns {plan: null, steps: [], events: []} when no plan exists.
+    Never returns 500 — all errors degrade gracefully.
+    """
+    import json as _json
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    lead = await conn.fetchval(
+        "SELECT id FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    plan   = None
+    steps  = []
+    events = []
+
+    try:
+        # Active plan
+        plan_row = await conn.fetchrow(
+            """SELECT id, lead_id, org_id, funnel_id, status, current_step,
+                      paused, escalation_reason, created_at, updated_at
+               FROM engagement_plans
+               WHERE lead_id = $1 AND status = 'active'
+               ORDER BY created_at DESC LIMIT 1""",
+            str(lead_id),
+        )
+
+        if plan_row:
+            plan = EngagementPlanItem(**dict(plan_row))
+
+            step_rows = await conn.fetch(
+                """SELECT id, plan_id, step_order, channel, action_type,
+                          scheduled_for, executed_at, status, template_key,
+                          generated_content_json, created_at
+                   FROM engagement_steps
+                   WHERE plan_id = $1
+                   ORDER BY step_order ASC""",
+                str(plan_row["id"]),
+            )
+            for r in step_rows:
+                try:
+                    d = dict(r)
+                    gcj = d.get("generated_content_json")
+                    if isinstance(gcj, str):
+                        try:
+                            gcj = _json.loads(gcj)
+                        except Exception:
+                            gcj = None
+                    d["generated_content_json"] = gcj
+                    steps.append(EngagementStepItem(**d))
+                except Exception as step_exc:
+                    _log.warning("Skipping malformed engagement step: %s", step_exc)
+
+        event_rows = await conn.fetch(
+            """SELECT id, lead_id, org_id, channel, event_type, direction,
+                      content, metadata_json, created_at
+               FROM engagement_events
+               WHERE lead_id = $1
+               ORDER BY created_at ASC""",
+            str(lead_id),
+        )
+        for r in event_rows:
+            try:
+                d = dict(r)
+                mj = d.get("metadata_json")
+                if isinstance(mj, str):
+                    try:
+                        mj = _json.loads(mj)
+                    except Exception:
+                        mj = None
+                d["metadata_json"] = mj
+                events.append(EngagementEventItem(**d))
+            except Exception as ev_exc:
+                _log.warning("Skipping malformed engagement event: %s", ev_exc)
+
+    except Exception as exc:
+        _log.error("Engagement fetch error for lead %s: %s", lead_id, exc)
+        # Return empty state rather than 500
+        return LeadEngagementResponse(plan=None, steps=[], events=[])
+
+    return LeadEngagementResponse(plan=plan, steps=steps, events=events)
 
 
 @router.get("/leads/{lead_id}/events")

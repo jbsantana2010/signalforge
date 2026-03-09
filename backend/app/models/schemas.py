@@ -414,3 +414,51 @@ class OrgInsightsResponse(BaseModel):
     summary: str
     highlights: list[str]
     mode: str = "stub"
+
+
+# --- Engagement Engine V1 ---
+
+
+class EngagementPlanItem(BaseModel):
+    id: UUID
+    lead_id: UUID
+    org_id: UUID
+    funnel_id: UUID | None = None
+    status: str
+    current_step: int
+    paused: bool
+    escalation_reason: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EngagementStepItem(BaseModel):
+    id: UUID
+    plan_id: UUID
+    step_order: int
+    channel: str
+    action_type: str
+    scheduled_for: datetime
+    executed_at: datetime | None = None
+    status: str
+    template_key: str | None = None
+    generated_content_json: dict | None = None
+    created_at: datetime
+
+
+class EngagementEventItem(BaseModel):
+    id: UUID
+    lead_id: UUID
+    org_id: UUID
+    channel: str
+    event_type: str
+    direction: str
+    content: str | None = None
+    metadata_json: dict | None = None
+    created_at: datetime
+
+
+class LeadEngagementResponse(BaseModel):
+    plan: EngagementPlanItem | None = None
+    steps: list[EngagementStepItem] = []
+    events: list[EngagementEventItem] = []

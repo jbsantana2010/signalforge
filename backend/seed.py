@@ -624,6 +624,139 @@ async def main():
             )
             print(f"  Lead 1 ({first_lead_id}) → stage=won, deal_amount=$8,400")
 
+        # Seed engagement plan for first lead (idempotent)
+        print("Seeding engagement plan for first lead...")
+        if first_lead_id:
+            from datetime import datetime, timedelta, timezone as tz
+            import uuid
+
+            # Check if plan already exists
+            existing_plan = await conn.fetchval(
+                "SELECT id FROM engagement_plans WHERE lead_id = $1 AND status = 'active'",
+                first_lead_id,
+            )
+            if not existing_plan:
+                plan_id = await conn.fetchval(
+                    """
+                    INSERT INTO engagement_plans (lead_id, org_id, funnel_id, status)
+                    VALUES ($1, $2, $3, 'active')
+                    RETURNING id
+                    """,
+                    first_lead_id,
+                    org_id,
+                    funnel_id,
+                )
+                now = datetime.now(tz.utc)
+                # step_order, channel, scheduled_for, status, content_json
+                seed_steps = [
+                    (
+                        1, "sms",
+                        now - timedelta(minutes=5),
+                        "sent",
+                        json.dumps({
+                            "template_key": "intro_sms_1",
+                            "sms_body": "Hi John, thanks for reaching out about solar! We'll be in touch shortly. Reply STOP to opt out.",
+                        }),
+                    ),
+                    (
+                        2, "email",
+                        now - timedelta(minutes=3),
+                        "skipped_missing_config",
+                        json.dumps({
+                            "template_key": "intro_email_1",
+                            "email_subject": "Following up on your solar inquiry",
+                            "email_body": "Hi John,\n\nThanks for your interest in solar. Our team has received your request and will reach out soon.\n\nBest regards,\nThe Team",
+                        }),
+                    ),
+                    (
+                        3, "sms",
+                        now + timedelta(hours=1),
+                        "pending",
+                        json.dumps({
+                            "template_key": "followup_sms_1",
+                            "sms_body": "Hi John, just checking in on your solar request. Any questions? Reply here.",
+                        }),
+                    ),
+                    (
+                        4, "email",
+                        now + timedelta(hours=24),
+                        "pending",
+                        json.dumps({
+                            "template_key": "followup_email_1",
+                            "email_subject": "Still interested in solar?",
+                            "email_body": "Hi John,\n\nWe noticed you haven't had a chance to connect yet regarding solar. We'd love to help — reply to this email or give us a call.\n\nBest regards,\nThe Team",
+                        }),
+                    ),
+                ]
+                step_ids = []
+                for step_order, channel, scheduled_for, status, content in seed_steps:
+                    executed_at = scheduled_for if status in ("sent", "skipped_missing_config") else None
+                    step_id = await conn.fetchval(
+                        """
+                        INSERT INTO engagement_steps
+                            (plan_id, step_order, channel, action_type,
+                             scheduled_for, executed_at, status, template_key, generated_content_json)
+                        VALUES ($1, $2, $3, 'send', $4, $5, $6, $7, $8)
+                        RETURNING id
+                        """,
+                        str(plan_id),
+                        step_order,
+                        channel,
+                        scheduled_for,
+                        executed_at,
+                        status,
+                        json.loads(content).get("template_key"),
+                        content,
+                    )
+                    step_ids.append((step_order, channel, status, step_id))
+
+                # Log engagement events for completed steps, tied to step IDs
+                for step_order, channel, status, step_id in step_ids:
+                    if status == "sent":
+                        event_type = f"{channel}_sent"
+                        content_snip = (
+                            "Hi John, thanks for reaching out about solar! We'll be in touch shortly."
+                            if channel == "sms" else "Following up on your solar inquiry"
+                        )
+                    elif status == "skipped_missing_config":
+                        event_type = f"{channel}_skipped_missing_config"
+                        content_snip = "Following up on your solar inquiry"
+                    else:
+                        continue
+                    await conn.execute(
+                        """
+                        INSERT INTO engagement_events
+                            (lead_id, org_id, channel, event_type, direction, content, metadata_json)
+                        VALUES ($1, $2, $3, $4, 'outbound', $5, $6)
+                        """,
+                        first_lead_id,
+                        org_id,
+                        channel,
+                        event_type,
+                        content_snip,
+                        json.dumps({
+                            "step_id":    str(step_id),
+                            "step_order": step_order,
+                            "plan_id":    str(plan_id),
+                            "status":     status,
+                            "seeded":     True,
+                        }),
+                    )
+                # Log plan_created system event
+                await conn.execute(
+                    """
+                    INSERT INTO engagement_events
+                        (lead_id, org_id, channel, event_type, direction, content, metadata_json)
+                    VALUES ($1, $2, 'system', 'plan_created', 'system', NULL, $3)
+                    """,
+                    first_lead_id,
+                    org_id,
+                    json.dumps({"plan_id": str(plan_id), "steps": len(seed_steps), "seeded": True}),
+                )
+                print(f"  Engagement plan {plan_id} seeded for lead {first_lead_id}")
+            else:
+                print(f"  Engagement plan already exists for lead {first_lead_id} — skipping")
+
         # ── Warder org + website-demo funnel (Basin webhook target) ──────────
         print("Creating Warder org...")
         warder_org_id = await conn.fetchval(
