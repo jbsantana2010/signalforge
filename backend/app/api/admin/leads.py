@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import get_current_user, resolve_active_org_id
 from app.database import get_db
-from app.models.schemas import LeadDetail, LeadEngagementResponse, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem, EngagementPlanItem, EngagementStepItem, EngagementEventItem
+from app.models.schemas import LeadDetail, LeadEngagementResponse, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem, EngagementPlanItem, EngagementStepItem, EngagementEventItem, InboundMessageItem
 from app.services.lead_service import get_lead_detail, get_leads, get_stage_history, insert_stage_history, update_pipeline_fields
 from app.services.lead_intelligence_service import compute_lead_intelligence, intelligence_to_dict
 
@@ -304,9 +304,10 @@ async def get_lead_engagement(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    plan   = None
-    steps  = []
-    events = []
+    plan             = None
+    steps            = []
+    events           = []
+    inbound_messages = []
 
     try:
         # Active plan
@@ -367,12 +368,34 @@ async def get_lead_engagement(
             except Exception as ev_exc:
                 _log.warning("Skipping malformed engagement event: %s", ev_exc)
 
+        inbound_rows = await conn.fetch(
+            """SELECT id, lead_id, org_id, channel, message_body, classification,
+                      suggested_response, metadata_json, created_at
+               FROM inbound_messages
+               WHERE lead_id = $1
+               ORDER BY created_at ASC""",
+            str(lead_id),
+        )
+        for r in inbound_rows:
+            try:
+                d = dict(r)
+                mj = d.get("metadata_json")
+                if isinstance(mj, str):
+                    try:
+                        mj = _json.loads(mj)
+                    except Exception:
+                        mj = None
+                d["metadata_json"] = mj
+                inbound_messages.append(InboundMessageItem(**d))
+            except Exception as im_exc:
+                _log.warning("Skipping malformed inbound message: %s", im_exc)
+
     except Exception as exc:
         _log.error("Engagement fetch error for lead %s: %s", lead_id, exc)
         # Return empty state rather than 500
-        return LeadEngagementResponse(plan=None, steps=[], events=[])
+        return LeadEngagementResponse(plan=None, steps=[], events=[], inbound_messages=[])
 
-    return LeadEngagementResponse(plan=plan, steps=steps, events=events)
+    return LeadEngagementResponse(plan=plan, steps=steps, events=events, inbound_messages=inbound_messages)
 
 
 @router.get("/leads/{lead_id}/events")

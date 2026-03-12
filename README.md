@@ -198,10 +198,10 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | Industry Templates | Vertical-specific profiles for onboarding | Done |
 | Pilot Ops | Health checks, status page, deployment runbook | Done |
 | Stripe Billing | Per-org subscription management | Planned |
-| **Engagement Engine V1** | Automated follow-up plans: SMS + email delivery pipeline, step scheduler, event logging, per-lead Engagement Timeline UI | Active |
+| **Engagement Engine V1** | Automated follow-up plans: SMS + email delivery pipeline, step scheduler, event logging, per-lead Engagement Timeline UI | Done |
+| **Inbound Reply Intelligence V2** | Inbound SMS webhook, keyword-based objection classification, suggested responses, escalation to human, timeline visibility | Done |
 | AI Voice Agent | Conversational AI for inbound/outbound calls | Planned |
 | Advanced Analytics | Conversion funnels, rep performance, cohort analysis | Planned |
-| Inbound Reply Handling | Classify inbound SMS/email replies (objection, intent, opt-out) | Planned |
 
 ## License
 

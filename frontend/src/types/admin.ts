@@ -259,10 +259,23 @@ export interface EngagementEvent {
   created_at: string;
 }
 
+export interface InboundMessage {
+  id: string;
+  lead_id: string;
+  org_id: string;
+  channel: string;
+  message_body: string;
+  classification: string | null;
+  suggested_response: string | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface LeadEngagementResponse {
   plan: EngagementPlan | null;
   steps: EngagementStep[];
   events: EngagementEvent[];
+  inbound_messages: InboundMessage[];
 }
 
 export interface EngagementWorkerResult {

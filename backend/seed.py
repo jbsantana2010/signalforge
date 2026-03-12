@@ -757,6 +757,53 @@ async def main():
             else:
                 print(f"  Engagement plan already exists for lead {first_lead_id} — skipping")
 
+        # Seed inbound message for first lead (idempotent)
+        print("Seeding inbound message for first lead...")
+        if first_lead_id:
+            existing_inbound = await conn.fetchval(
+                "SELECT id FROM inbound_messages WHERE lead_id = $1 LIMIT 1",
+                first_lead_id,
+            )
+            if not existing_inbound:
+                from app.services.reply_classifier import classify_reply
+                inbound_body = "This is too expensive"
+                classification_result = classify_reply(inbound_body)
+                inbound_id = await conn.fetchval(
+                    """
+                    INSERT INTO inbound_messages
+                        (lead_id, org_id, channel, message_body, classification, suggested_response, metadata_json)
+                    VALUES ($1, $2, 'sms', $3, $4, $5, $6)
+                    RETURNING id
+                    """,
+                    first_lead_id,
+                    org_id,
+                    inbound_body,
+                    classification_result["classification"],
+                    classification_result["suggested_response"],
+                    json.dumps({"from_number": "+13105551234", "seeded": True}),
+                )
+                # Log matching engagement event
+                await conn.execute(
+                    """
+                    INSERT INTO engagement_events
+                        (lead_id, org_id, channel, event_type, direction, content, metadata_json)
+                    VALUES ($1, $2, 'sms', 'sms_reply', 'inbound', $3, $4)
+                    """,
+                    first_lead_id,
+                    org_id,
+                    inbound_body,
+                    json.dumps({
+                        "inbound_message_id": str(inbound_id),
+                        "classification": classification_result["classification"],
+                        "suggested_response": classification_result["suggested_response"],
+                        "from_number": "+13105551234",
+                        "seeded": True,
+                    }),
+                )
+                print(f"  Inbound message seeded: '{inbound_body}' → classification={classification_result['classification']}")
+            else:
+                print(f"  Inbound message already exists for lead {first_lead_id} — skipping")
+
         # ── Warder org + website-demo funnel (Basin webhook target) ──────────
         print("Creating Warder org...")
         warder_org_id = await conn.fetchval(

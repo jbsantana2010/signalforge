@@ -91,6 +91,10 @@ try:
 except ImportError:
     pass
 
+# Inbound SMS reply handler
+from app.api.public.inbound_sms import router as public_inbound_sms
+app.include_router(public_inbound_sms, prefix="/public", tags=["Public Inbound"])
+
 
 @app.get("/health")
 async def health():

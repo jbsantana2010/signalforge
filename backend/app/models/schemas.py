@@ -458,7 +458,20 @@ class EngagementEventItem(BaseModel):
     created_at: datetime
 
 
+class InboundMessageItem(BaseModel):
+    id: UUID
+    lead_id: UUID
+    org_id: UUID
+    channel: str
+    message_body: str
+    classification: str | None = None
+    suggested_response: str | None = None
+    metadata_json: dict | None = None
+    created_at: datetime
+
+
 class LeadEngagementResponse(BaseModel):
     plan: EngagementPlanItem | None = None
     steps: list[EngagementStepItem] = []
     events: list[EngagementEventItem] = []
+    inbound_messages: list[InboundMessageItem] = []

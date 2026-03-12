@@ -643,7 +643,58 @@ Or use the Ops UI: navigate to `/admin/ops` → click "Run Due Engagement Steps"
 ### Current Limitations (V1.1)
 
 - No automatic cron scheduler — worker must be triggered manually via the Ops button or API
-- No inbound reply handling
 - No AI-generated message content (deterministic templates only)
 - Call channel not yet implemented (always `skipped_missing_config`)
-- No escalation logic
+
+---
+
+## Sprint V2: Inbound Replies + Objection Classification
+
+### What was added
+
+- `inbound_messages` table (migration 014)
+- `POST /public/inbound/sms` — inbound reply webhook
+- `reply_classifier.py` — deterministic keyword-based classification
+- `GET /admin/leads/{id}/engagement` now returns `inbound_messages` array
+- Engagement Timeline shows lead replies with classification badge + Copy Response button
+- Escalation: if classification is `human_needed` or `unknown`, plan is paused
+
+### Testing Inbound Replies
+
+```bash
+# Simulate a lead reply (replace with a real lead phone number)
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from": "+13105551234", "body": "This is too expensive"}'
+
+# Expected response:
+# {"status": "ok", "classification": "price", "suggested_response": "I understand..."}
+```
+
+Seed data includes an example inbound message for lead #1 (John Smith) with body "This is too expensive" → classified as `price`.
+
+### Reply Classifications
+
+| Classification | Behavior |
+|----------------|----------|
+| `interested` | Event logged, plan continues |
+| `price` | Event logged, plan continues |
+| `timing` | Event logged, plan continues |
+| `info` | Event logged, plan continues |
+| `not_interested` | Event logged, plan continues |
+| `human_needed` | Plan **paused**, escalated_to_human event created |
+| `unknown` | Plan **paused**, escalated_to_human event created |
+
+### Human-in-the-Loop Design
+
+Warder does **not** auto-send replies. The suggested response is:
+- Stored in `inbound_messages.suggested_response`
+- Displayed in the Engagement Timeline with a "Copy Response" button
+- Used by the human agent to manually reply
+
+### Current Limitations (V2)
+
+- Inbound email replies not yet handled (SMS only)
+- No AI-generated suggested responses (deterministic templates only)
+- Replies do not automatically advance or branch the engagement plan
+- Phone matching uses 10-digit suffix — may match wrong lead if duplicates exist

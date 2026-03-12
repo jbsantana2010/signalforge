@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
 import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement } from '@/lib/api';
-import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse } from '@/types/admin';
+import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse, InboundMessage } from '@/types/admin';
 
 interface AutomationEvent {
   event_type: string;
@@ -691,7 +691,7 @@ export default function LeadDetailPage() {
             )}
 
             {/* Engagement Timeline */}
-            {engagement && (engagement.plan || engagement.steps.length > 0 || engagement.events.length > 0) && (
+            {engagement && (engagement.plan || engagement.steps.length > 0 || engagement.events.length > 0 || engagement.inbound_messages.length > 0) && (
               <div className="bg-white rounded-lg shadow-sm border p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Engagement Timeline</h2>
 
@@ -744,6 +744,18 @@ export default function LeadDetailPage() {
                             {new Date(ev.created_at).toLocaleString()}
                           </span>
                         </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inbound replies */}
+                {engagement.inbound_messages.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Lead Replies</h3>
+                    <div className="space-y-3">
+                      {engagement.inbound_messages.map((msg) => (
+                        <InboundMessageCard key={msg.id} message={msg} />
                       ))}
                     </div>
                   </div>
@@ -977,6 +989,69 @@ function TimelineEntry({ event }: { event: AutomationEvent }) {
         <pre className="mt-1 text-xs bg-gray-50 rounded p-2 overflow-x-auto text-gray-600">
           {JSON.stringify(event.detail_json, null, 2)}
         </pre>
+      )}
+    </div>
+  );
+}
+
+const CLASSIFICATION_COLORS: Record<string, string> = {
+  interested:     'bg-green-100 text-green-800',
+  price:          'bg-orange-100 text-orange-800',
+  timing:         'bg-blue-100 text-blue-800',
+  info:           'bg-purple-100 text-purple-800',
+  not_interested: 'bg-red-100 text-red-800',
+  human_needed:   'bg-yellow-100 text-yellow-800',
+  unknown:        'bg-gray-100 text-gray-600',
+};
+
+function InboundMessageCard({ message }: { message: InboundMessage }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (!message.suggested_response) return;
+    navigator.clipboard.writeText(message.suggested_response).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const classificationLabel = message.classification
+    ? message.classification.replace(/_/g, ' ')
+    : 'unknown';
+
+  return (
+    <div className="border border-blue-200 bg-blue-50 rounded-lg p-4">
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700 uppercase">
+            SMS Reply
+          </span>
+          {message.classification && (
+            <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full capitalize ${CLASSIFICATION_COLORS[message.classification] || 'bg-gray-100 text-gray-600'}`}>
+              {classificationLabel}
+            </span>
+          )}
+        </div>
+        <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
+          {new Date(message.created_at).toLocaleString()}
+        </span>
+      </div>
+
+      <p className="text-sm text-gray-800 mb-3 italic">&ldquo;{message.message_body}&rdquo;</p>
+
+      {message.suggested_response && (
+        <div className="bg-white border border-blue-100 rounded p-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Suggested Response</span>
+            <button
+              onClick={handleCopy}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              {copied ? 'Copied!' : 'Copy Response'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-700">{message.suggested_response}</p>
+        </div>
       )}
     </div>
   );

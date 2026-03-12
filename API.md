@@ -1112,3 +1112,85 @@ The worker logs `call_not_supported_v1` as the reason. No crash occurs.
 ```
 
 Never returns 500 for missing data.
+
+The response now also includes `inbound_messages`:
+
+```json
+{
+  "plan": {...},
+  "steps": [...],
+  "events": [...],
+  "inbound_messages": [
+    {
+      "id": "uuid",
+      "lead_id": "uuid",
+      "org_id": "uuid",
+      "channel": "sms",
+      "message_body": "This is too expensive",
+      "classification": "price",
+      "suggested_response": "I understand...",
+      "metadata_json": {"from_number": "+15551234567"},
+      "created_at": "2026-03-11T..."
+    }
+  ]
+}
+```
+
+---
+
+## Inbound Reply Intelligence (V2)
+
+### POST /public/inbound/sms
+
+Receive an inbound SMS reply from a lead.
+
+**No authentication required** (public endpoint — Twilio webhook compatible).
+
+**Request Body:**
+
+```json
+{
+  "from": "+15551234567",
+  "body": "This is too expensive"
+}
+```
+
+Also accepts Twilio PascalCase fields (`From`, `Body`) and snake_case (`from_number`, `body`).
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "classification": "price",
+  "suggested_response": "I understand. Many customers feel the same at first..."
+}
+```
+
+**Behavior:**
+
+1. Identifies lead by phone number (fuzzy 10-digit suffix match)
+2. Creates `inbound_messages` row with classification + suggested_response
+3. Creates `engagement_event` with `event_type: sms_reply`, `direction: inbound`
+4. If `classification` is `human_needed` or `unknown`: pauses the engagement plan and creates `escalated_to_human` event
+5. Returns classification and suggested response — does NOT auto-send any reply
+
+**Classifications:**
+
+| Value | Trigger Keywords |
+|-------|-----------------|
+| `interested` | yes, interested, tell me more, sure, sign me up |
+| `price` | price, expensive, cost, too much, afford |
+| `timing` | later, not ready, maybe next month, wait |
+| `info` | info, information, how does, question, explain |
+| `not_interested` | no thanks, stop, not interested, unsubscribe |
+| `human_needed` | help, human, agent, real person, speak to |
+| `unknown` | (fallback — no keyword match) |
+
+**Escalation:**
+
+When classification is `human_needed` or `unknown`:
+- `engagement_plans.paused` is set to `true`
+- `engagement_plans.escalation_reason` = `reply_requires_human`
+- An `escalated_to_human` engagement event is created
+- The outbound worker will skip paused plans automatically
