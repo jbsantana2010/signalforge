@@ -804,6 +804,129 @@ async def main():
             else:
                 print(f"  Inbound message already exists for lead {first_lead_id} — skipping")
 
+        # Seed human_needed handoff case for second lead (idempotent)
+        print("Seeding human_needed handoff case for second lead...")
+        second_lead_id = await conn.fetchval(
+            """SELECT id FROM leads WHERE org_id = $1
+               ORDER BY created_at ASC LIMIT 1 OFFSET 1""",
+            org_id,
+        )
+        if second_lead_id:
+            existing_handoff_plan = await conn.fetchval(
+                "SELECT id FROM engagement_plans WHERE lead_id = $1 AND status = 'active'",
+                second_lead_id,
+            )
+            if not existing_handoff_plan:
+                from datetime import datetime, timedelta, timezone as tz
+                import uuid
+
+                # Create active plan
+                handoff_plan_id = await conn.fetchval(
+                    """
+                    INSERT INTO engagement_plans (lead_id, org_id, funnel_id, status, paused, escalation_reason)
+                    VALUES ($1, $2, $3, 'active', true, 'reply_requires_human')
+                    RETURNING id
+                    """,
+                    second_lead_id,
+                    org_id,
+                    funnel_id,
+                )
+
+                now = datetime.now(tz.utc)
+                # One sent step + two pending (will be cancelled) steps
+                handoff_steps = [
+                    (1, "sms", now - timedelta(minutes=10), "sent",
+                     json.dumps({"template_key": "intro_sms_1", "sms_body": "Hi Maria, thanks for your interest in solar!"})),
+                    (2, "sms", now + timedelta(hours=2), "cancelled",
+                     json.dumps({"template_key": "followup_sms_1", "sms_body": "Hi Maria, following up on solar."})),
+                    (3, "email", now + timedelta(hours=24), "cancelled",
+                     json.dumps({"template_key": "followup_email_1", "email_subject": "Still interested in solar?", "email_body": "Hi Maria, we'd love to help."})),
+                ]
+                for step_order, channel, scheduled_for, status, content in handoff_steps:
+                    executed_at = scheduled_for if status == "sent" else None
+                    await conn.execute(
+                        """
+                        INSERT INTO engagement_steps
+                            (plan_id, step_order, channel, action_type,
+                             scheduled_for, executed_at, status, template_key, generated_content_json)
+                        VALUES ($1, $2, $3, 'send', $4, $5, $6, $7, $8)
+                        """,
+                        str(handoff_plan_id),
+                        step_order,
+                        channel,
+                        scheduled_for,
+                        executed_at,
+                        status,
+                        json.loads(content).get("template_key"),
+                        content,
+                    )
+
+                # Create inbound human_needed message
+                handoff_inbound_id = await conn.fetchval(
+                    """
+                    INSERT INTO inbound_messages
+                        (lead_id, org_id, channel, message_body, classification, suggested_response, metadata_json)
+                    VALUES ($1, $2, 'sms', $3, 'human_needed', $4, $5)
+                    RETURNING id
+                    """,
+                    second_lead_id,
+                    org_id,
+                    "I have a complex situation, I need to talk to someone directly",
+                    "I completely understand — let me connect you with one of our specialists directly. What time works best for a quick call?",
+                    json.dumps({"from_number": "+13105559876", "seeded": True}),
+                )
+
+                # Mark lead needs_human
+                await conn.execute(
+                    """
+                    UPDATE leads
+                    SET needs_human = true,
+                        handoff_reason = 'reply_requires_human',
+                        handoff_at = now()
+                    WHERE id = $1
+                    """,
+                    second_lead_id,
+                )
+
+                # Log sms_reply event
+                await conn.execute(
+                    """
+                    INSERT INTO engagement_events
+                        (lead_id, org_id, channel, event_type, direction, content, metadata_json)
+                    VALUES ($1, $2, 'sms', 'sms_reply', 'inbound', $3, $4)
+                    """,
+                    second_lead_id,
+                    org_id,
+                    "I have a complex situation, I need to talk to someone directly",
+                    json.dumps({
+                        "inbound_message_id": str(handoff_inbound_id),
+                        "classification": "human_needed",
+                        "seeded": True,
+                    }),
+                )
+
+                # Log handoff_required event
+                await conn.execute(
+                    """
+                    INSERT INTO engagement_events
+                        (lead_id, org_id, channel, event_type, direction, content, metadata_json)
+                    VALUES ($1, $2, 'system', 'handoff_required', 'system', NULL, $3)
+                    """,
+                    second_lead_id,
+                    org_id,
+                    json.dumps({
+                        "classification": "human_needed",
+                        "inbound_message_id": str(handoff_inbound_id),
+                        "seeded": True,
+                    }),
+                )
+
+                print(f"  Human handoff case seeded for lead {second_lead_id} — needs_human=true, steps cancelled")
+            else:
+                print(f"  Engagement plan already exists for second lead {second_lead_id} — skipping handoff seed")
+        else:
+            print("  Second lead not found — skipping handoff seed")
+
         # ── Warder org + website-demo funnel (Basin webhook target) ──────────
         print("Creating Warder org...")
         warder_org_id = await conn.fetchval(

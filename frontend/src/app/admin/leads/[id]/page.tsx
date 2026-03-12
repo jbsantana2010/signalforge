@@ -294,6 +294,35 @@ export default function LeadDetailPage() {
               </div>
             </div>
 
+            {/* Human Handoff Banner */}
+            {lead.needs_human && (
+              <div className="bg-red-50 border border-red-300 rounded-lg p-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="inline-flex px-3 py-1 text-sm font-bold rounded-full bg-red-600 text-white uppercase tracking-wide">
+                    Needs Human Follow-Up
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-sm">
+                  {lead.handoff_reason && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Reason</span>
+                      <p className="text-red-900 font-medium mt-0.5 capitalize">
+                        {lead.handoff_reason.replace(/_/g, ' ')}
+                      </p>
+                    </div>
+                  )}
+                  {lead.handoff_at && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Since</span>
+                      <p className="text-red-900 mt-0.5">
+                        {new Date(lead.handoff_at).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Pipeline Stage Manager */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Pipeline Stage</h2>
@@ -863,6 +892,7 @@ function EngagementStatusBadge({ status }: { status: string }) {
     skipped_missing_config:  'bg-orange-100 text-orange-800',
     failed:                  'bg-red-100 text-red-800',
     completed:               'bg-blue-100 text-blue-800',
+    cancelled:               'bg-gray-200 text-gray-500 line-through',
   };
   return (
     <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import AdminLayout from '@/components/admin/AdminLayout';
-import { fetchHealth, runEngagementWorker } from '@/lib/api';
+import { fetchHealth, runEngagementWorker, fetchHandoffQueue } from '@/lib/api';
 import { getToken } from '@/lib/auth';
-import type { EngagementWorkerResult } from '@/types/admin';
+import type { EngagementWorkerResult, HandoffQueueResponse } from '@/types/admin';
 
 interface HealthData {
   status: string;
@@ -45,11 +45,21 @@ export default function OpsPage() {
   const [workerResult, setWorkerResult] = useState<EngagementWorkerResult | null>(null);
   const [workerError, setWorkerError] = useState('');
 
+  // Handoff queue
+  const [handoffQueue, setHandoffQueue] = useState<HandoffQueueResponse | null>(null);
+
   useEffect(() => {
     fetchHealth()
       .then(setHealth)
       .catch(() => setError('Unable to reach backend'))
       .finally(() => setLoading(false));
+
+    const token = getToken();
+    if (token) {
+      fetchHandoffQueue(token)
+        .then(setHandoffQueue)
+        .catch(() => {/* silently ignore — queue is non-critical */});
+    }
   }, []);
 
   const handleRunWorker = async () => {
@@ -150,6 +160,53 @@ export default function OpsPage() {
           <p className="text-xs text-gray-400 mt-2">
             V1.1 — admin-triggered only. Automatic cron scheduler is not yet enabled.
           </p>
+        </div>
+
+        {/* Human Handoff Queue */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Human Handoff Queue</h2>
+          <div className="bg-white rounded-lg shadow-sm border p-5">
+            {handoffQueue === null ? (
+              <p className="text-sm text-gray-400">Loading...</p>
+            ) : handoffQueue.count === 0 ? (
+              <p className="text-sm text-gray-500">No leads currently need human follow-up.</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-3xl font-bold text-red-600">{handoffQueue.count}</span>
+                  <span className="text-sm text-gray-500">
+                    lead{handoffQueue.count !== 1 ? 's' : ''} need human follow-up
+                  </span>
+                </div>
+                {handoffQueue.leads.length > 0 && (
+                  <div className="space-y-2 border-t pt-4">
+                    {handoffQueue.leads.map((lead) => (
+                      <div key={lead.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
+                        <div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {lead.name ?? 'Unknown'}
+                          </span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-gray-500 capitalize">{lead.stage}</span>
+                            {lead.handoff_reason && (
+                              <span className="text-xs text-red-600 capitalize">
+                                · {lead.handoff_reason.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {lead.handoff_at && (
+                          <span className="text-xs text-gray-400 whitespace-nowrap ml-4">
+                            {new Date(lead.handoff_at).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </AdminLayout>

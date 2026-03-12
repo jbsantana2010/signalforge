@@ -329,6 +329,14 @@ export async function runEngagementWorker(token: string) {
   return res.json();
 }
 
+export async function fetchHandoffQueue(token: string) {
+  const res = await authFetch(`${API_BASE}/admin/ops/handoffs`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch handoff queue');
+  return res.json();
+}
+
 export async function createOrgFunnel(token: string, orgId: string, data: {
   name: string; slug: string; enable_sequences?: boolean;
   enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;

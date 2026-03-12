@@ -50,6 +50,9 @@ export interface LeadDetail {
   is_stale?: boolean;
   stage_leak_warning?: boolean;
   stage_leak_message?: string;
+  needs_human?: boolean;
+  handoff_reason?: string;
+  handoff_at?: string;
 }
 
 export interface LeadIntelligence {
@@ -284,4 +287,19 @@ export interface EngagementWorkerResult {
   sent: number;
   skipped_missing_config: number;
   failed: number;
+}
+
+// --- Human Handoff Queue ---
+
+export interface HandoffQueueItem {
+  id: string;
+  name: string | null;
+  stage: string;
+  handoff_reason: string | null;
+  handoff_at: string | null;
+}
+
+export interface HandoffQueueResponse {
+  count: number;
+  leads: HandoffQueueItem[];
 }

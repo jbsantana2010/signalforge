@@ -1194,3 +1194,57 @@ When classification is `human_needed` or `unknown`:
 - `engagement_plans.escalation_reason` = `reply_requires_human`
 - An `escalated_to_human` engagement event is created
 - The outbound worker will skip paused plans automatically
+
+---
+
+## Sprint V2.1: Branching + Human Handoff
+
+### `GET /admin/ops/handoffs`
+
+Returns org-scoped count of leads that need human follow-up, plus up to 5 most recent.
+
+**Auth:** JWT Bearer + X-ORG-ID
+
+**Response:**
+```json
+{
+  "count": 2,
+  "leads": [
+    {
+      "id": "uuid",
+      "name": "Maria Garcia",
+      "stage": "contacted",
+      "handoff_reason": "reply_requires_human",
+      "handoff_at": "2026-03-12T10:00:00Z"
+    }
+  ]
+}
+```
+
+### Lead Detail — new fields
+
+`GET /admin/leads/{id}` now returns:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `needs_human` | `bool` | True if lead requires human follow-up |
+| `handoff_reason` | `string \| null` | Why handoff was triggered |
+| `handoff_at` | `datetime \| null` | When handoff was triggered |
+
+### Engagement Branching Behaviour
+
+When `POST /public/inbound/sms` receives a classified reply, `apply_reply_branching()` is called:
+
+| Classification | Plan | Pending steps | Lead |
+|----------------|------|---------------|------|
+| `interested` | unchanged | unchanged | unchanged |
+| `price` | unchanged | unchanged | unchanged |
+| `info` | unchanged | unchanged | unchanged |
+| `timing` | unchanged | next SMS rescheduled +24h | unchanged |
+| `not_interested` | paused | cancelled | unchanged |
+| `human_needed` | paused | cancelled | `needs_human=true` |
+| `unknown` | paused | cancelled | `needs_human=true` |
+
+Branch events are logged to `engagement_events` with event types:
+`branch_interested`, `branch_price`, `branch_info`, `branch_timing`,
+`branch_not_interested`, `handoff_required`

@@ -159,7 +159,8 @@ async def get_lead_detail(
                contact_status, last_contacted_at,
                stage, deal_amount, stage_updated_at,
                next_action_at, next_action_note,
-               outcome_reason, outcome_note, closed_at
+               outcome_reason, outcome_note, closed_at,
+               needs_human, handoff_reason, handoff_at
         FROM leads
         WHERE id = $1 AND org_id = $2
         """,
@@ -200,6 +201,9 @@ async def get_lead_detail(
         "outcome_reason": row["outcome_reason"],
         "outcome_note": row["outcome_note"],
         "closed_at": row["closed_at"],
+        "needs_human": row["needs_human"] or False,
+        "handoff_reason": row["handoff_reason"],
+        "handoff_at": row["handoff_at"],
     }
 
 
@@ -235,7 +239,8 @@ async def update_pipeline_fields(
                   contact_status, last_contacted_at,
                   stage, deal_amount, stage_updated_at,
                   next_action_at, next_action_note,
-                  outcome_reason, outcome_note, closed_at
+                  outcome_reason, outcome_note, closed_at,
+                  needs_human, handoff_reason, handoff_at
         """,
         stage,
         deal_amount,
@@ -281,6 +286,9 @@ async def update_pipeline_fields(
         "outcome_reason": row["outcome_reason"],
         "outcome_note": row["outcome_note"],
         "closed_at": row["closed_at"],
+        "needs_human": row["needs_human"] or False,
+        "handoff_reason": row["handoff_reason"],
+        "handoff_at": row["handoff_at"],
     }
 
 

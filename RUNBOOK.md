@@ -698,3 +698,59 @@ Warder does **not** auto-send replies. The suggested response is:
 - No AI-generated suggested responses (deterministic templates only)
 - Replies do not automatically advance or branch the engagement plan
 - Phone matching uses 10-digit suffix — may match wrong lead if duplicates exist
+
+---
+
+## Sprint V2.1: Branching + Human Handoff
+
+### What was added
+
+- Migration `015_handoff_state.sql` — adds `needs_human`, `handoff_reason`, `handoff_at` to `leads`
+- `engagement_branching.py` — deterministic branching service
+- `POST /public/inbound/sms` now calls `apply_reply_branching()` instead of inline escalation
+- `GET /admin/ops/handoffs` — org-scoped handoff queue (count + 5 most recent)
+- Lead detail API now returns `needs_human`, `handoff_reason`, `handoff_at`
+- Lead detail UI: red "Needs Human Follow-Up" banner with reason + timestamp
+- Engagement Timeline: cancelled steps shown with grey strikethrough badge
+- Ops page: "Human Handoff Queue" section with count + recent list
+
+### Branching Rules
+
+| Classification | Plan | Steps | Lead flags |
+|----------------|------|-------|------------|
+| `interested` | active | unchanged | none |
+| `price` | active | unchanged | none |
+| `info` | active | unchanged | none |
+| `timing` | active | next pending SMS rescheduled +24h | none |
+| `not_interested` | **paused** | pending → **cancelled** | none |
+| `human_needed` | **paused** | pending → **cancelled** | `needs_human=true` |
+| `unknown` | **paused** | pending → **cancelled** | `needs_human=true` |
+
+### Testing Handoff Flow
+
+```bash
+# Send a human_needed inbound reply
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "I need to speak to a real person"}'
+
+# Expected response:
+# {"status": "ok", "classification": "human_needed", "suggested_response": "..."}
+```
+
+Then:
+1. Open the lead in `/admin/leads/{id}` — red "Needs Human Follow-Up" banner appears
+2. Engagement Timeline shows pending steps with `cancelled` badge
+3. Navigate to `/admin/ops` — "Human Handoff Queue" shows count ≥ 1
+
+### Seed Data
+
+- **Lead #2 (Maria Garcia)**: `needs_human=true`, engagement plan paused, 2 steps cancelled, `handoff_required` event logged
+- **Lead #1 (John Smith)**: unchanged — seeded `price` classification from V2
+
+### Limitations (V2.1)
+
+- No rep notification via SMS/email yet (handoff is queue-visible only)
+- `needs_human` is not automatically cleared when a rep resolves the lead
+- Branching only on SMS inbound — email replies not yet handled
+- Timing reschedule applies only to the first pending SMS step

@@ -109,6 +109,9 @@ class LeadDetail(BaseModel):
     is_stale: bool | None = None
     stage_leak_warning: bool | None = None
     stage_leak_message: str | None = None
+    needs_human: bool = False
+    handoff_reason: str | None = None
+    handoff_at: datetime | None = None
 
 
 class LeadStageUpdateRequest(BaseModel):
@@ -475,3 +478,19 @@ class LeadEngagementResponse(BaseModel):
     steps: list[EngagementStepItem] = []
     events: list[EngagementEventItem] = []
     inbound_messages: list[InboundMessageItem] = []
+
+
+# --- Human Handoff Queue ---
+
+
+class HandoffQueueItem(BaseModel):
+    id: UUID
+    name: str | None = None
+    stage: str
+    handoff_reason: str | None = None
+    handoff_at: datetime | None = None
+
+
+class HandoffQueueResponse(BaseModel):
+    count: int
+    leads: list[HandoffQueueItem] = []

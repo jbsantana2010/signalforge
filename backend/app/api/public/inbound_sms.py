@@ -1,6 +1,6 @@
 """
 Inbound SMS webhook — receives lead replies, classifies them, logs events,
-and escalates to human when needed.
+and applies engagement branching rules.
 
 POST /public/inbound/sms
 Human-in-the-loop: DOES NOT auto-send replies.
@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.services.reply_classifier import classify_reply
 from app.services.engagement_service import log_engagement_event
+from app.services.engagement_branching import apply_reply_branching
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,10 @@ async def inbound_sms(
     Receive an inbound SMS reply from a lead.
 
     1. Identify lead by phone number
-    2. Create inbound_messages row
-    3. Classify the reply
-    4. Store classification + suggested_response
-    5. Create engagement_event
-    6. Pause plan and escalate if classification requires human
+    2. Classify the reply
+    3. Create inbound_messages row
+    4. Log sms_reply engagement event
+    5. Apply branching rules based on classification
     """
     from_number = payload.get_from()
     message_body = payload.get_body()
@@ -128,39 +128,14 @@ async def inbound_sms(
         },
     )
 
-    # Escalation: pause plan when human is needed or classification is unknown
-    if classification in ("human_needed", "unknown"):
-        try:
-            await conn.execute(
-                """
-                UPDATE engagement_plans
-                SET paused = true,
-                    escalation_reason = 'reply_requires_human',
-                    updated_at = now()
-                WHERE lead_id = $1 AND status = 'active'
-                """,
-                lead_id,
-            )
-            await log_engagement_event(
-                conn,
-                lead_id=lead_id,
-                org_id=org_id,
-                channel="system",
-                event_type="escalated_to_human",
-                direction="system",
-                content=None,
-                metadata={
-                    "reason": "reply_requires_human",
-                    "classification": classification,
-                    "inbound_message_id": str(inbound_id),
-                },
-            )
-            logger.info(
-                "Engagement plan paused for lead %s — classification: %s",
-                lead_id, classification,
-            )
-        except Exception as exc:
-            logger.warning("Failed to escalate plan for lead %s: %s", lead_id, exc)
+    # Apply branching rules based on classification
+    await apply_reply_branching(
+        conn,
+        lead_id=lead_id,
+        org_id=org_id,
+        classification=classification,
+        inbound_message_id=str(inbound_id),
+    )
 
     return {
         "status": "ok",
