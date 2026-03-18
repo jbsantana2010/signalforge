@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import AdminLayout from '@/components/admin/AdminLayout';
-import { fetchHealth, runEngagementWorker, fetchHandoffQueue } from '@/lib/api';
+import { fetchHealth, runEngagementWorker, fetchHandoffQueue, resolveHandoff } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import type { EngagementWorkerResult, HandoffQueueResponse } from '@/types/admin';
 
@@ -47,6 +47,7 @@ export default function OpsPage() {
 
   // Handoff queue
   const [handoffQueue, setHandoffQueue] = useState<HandoffQueueResponse | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHealth()
@@ -77,6 +78,21 @@ export default function OpsPage() {
       setWorkerError(err instanceof Error ? err.message : 'Worker run failed');
     } finally {
       setWorkerRunning(false);
+    }
+  };
+
+  const handleResolve = async (leadId: string) => {
+    const token = getToken();
+    if (!token) return;
+    setResolvingId(leadId);
+    try {
+      await resolveHandoff(token, leadId);
+      const updated = await fetchHandoffQueue(token);
+      setHandoffQueue(updated);
+    } catch {
+      // silently ignore
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -182,24 +198,36 @@ export default function OpsPage() {
                   <div className="space-y-2 border-t pt-4">
                     {handoffQueue.leads.map((lead) => (
                       <div key={lead.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
-                        <div>
+                        <div className="min-w-0">
                           <span className="text-sm font-medium text-gray-900">
                             {lead.name ?? 'Unknown'}
                           </span>
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-xs text-gray-500 capitalize">{lead.stage}</span>
                             {lead.handoff_reason && (
                               <span className="text-xs text-red-600 capitalize">
                                 · {lead.handoff_reason.replace(/_/g, ' ')}
                               </span>
                             )}
+                            {lead.owner_email && (
+                              <span className="text-xs text-gray-500">
+                                · {lead.owner_email}
+                              </span>
+                            )}
                           </div>
+                          {lead.handoff_at && (
+                            <span className="text-xs text-gray-400 block mt-0.5">
+                              {new Date(lead.handoff_at).toLocaleString()}
+                            </span>
+                          )}
                         </div>
-                        {lead.handoff_at && (
-                          <span className="text-xs text-gray-400 whitespace-nowrap ml-4">
-                            {new Date(lead.handoff_at).toLocaleString()}
-                          </span>
-                        )}
+                        <button
+                          onClick={() => handleResolve(lead.id)}
+                          disabled={resolvingId === lead.id}
+                          className="ml-4 shrink-0 bg-white border border-red-300 text-red-700 py-1 px-3 rounded-md text-xs font-medium hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {resolvingId === lead.id ? 'Resolving...' : 'Resolve'}
+                        </button>
                       </div>
                     ))}
                   </div>

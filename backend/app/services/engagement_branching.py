@@ -99,6 +99,27 @@ async def apply_reply_branching(
                 "Lead %s marked needs_human — classification: %s", lead_id, classification
             )
 
+            # Determine owner_email: lead's assigned rep, else org admin, else None
+            owner_email: str | None = await conn.fetchval(
+                "SELECT owner_email FROM leads WHERE id = $1", lead_id
+            )
+            if not owner_email:
+                owner_email = await conn.fetchval(
+                    """SELECT email FROM users
+                       WHERE org_id = $1
+                       ORDER BY created_at ASC LIMIT 1""",
+                    org_id,
+                )
+
+            from app.services.notification_service import notify_handoff_required
+            await notify_handoff_required(
+                conn,
+                lead_id=lead_id,
+                org_id=org_id,
+                owner_email=owner_email,
+                reason="reply_requires_human",
+            )
+
         else:
             logger.warning(
                 "Unrecognised classification '%s' for lead %s — no branching applied",

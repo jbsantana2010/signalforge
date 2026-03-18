@@ -53,6 +53,7 @@ export interface LeadDetail {
   needs_human?: boolean;
   handoff_reason?: string;
   handoff_at?: string;
+  owner_email?: string;
 }
 
 export interface LeadIntelligence {
@@ -297,6 +298,7 @@ export interface HandoffQueueItem {
   stage: string;
   handoff_reason: string | null;
   handoff_at: string | null;
+  owner_email: string | null;
 }
 
 export interface HandoffQueueResponse {

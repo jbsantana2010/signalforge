@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement } from '@/lib/api';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement, resolveHandoff, patchLead } from '@/lib/api';
 import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse, InboundMessage } from '@/types/admin';
 
 interface AutomationEvent {
@@ -99,6 +99,15 @@ export default function LeadDetailPage() {
   const [stageError, setStageError] = useState('');
   const [stageSuccess, setStageSuccess] = useState('');
 
+  // Handoff resolution
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState('');
+
+  // Owner email
+  const [ownerEmailInput, setOwnerEmailInput] = useState('');
+  const [ownerSaving, setOwnerSaving] = useState(false);
+  const [ownerSuccess, setOwnerSuccess] = useState('');
+
   // AI Conversion Assist
   const [assist, setAssist] = useState<{ mode: string; data: { next_action: string; sms_script: string; email_script: string; call_talking_points: string[] } } | null>(null);
   const [assistLoading, setAssistLoading] = useState(false);
@@ -115,6 +124,7 @@ export default function LeadDetailPage() {
         setLead(data);
         setSelectedStage(data.stage || 'new');
         setDealAmount(data.deal_amount ? String(data.deal_amount) : '');
+        setOwnerEmailInput(data.owner_email ?? '');
         try {
           const seqs = await fetchLeadSequences(token, params.id as string);
           setSequences(seqs);
@@ -227,6 +237,40 @@ export default function LeadDetailPage() {
     }
   };
 
+  const handleResolveHandoff = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+    setResolving(true);
+    setResolveError('');
+    try {
+      await resolveHandoff(token, lead.id);
+      setLead({ ...lead, needs_human: false, handoff_reason: undefined, handoff_at: undefined });
+      const eng = await fetchLeadEngagement(token, lead.id);
+      setEngagement(eng);
+    } catch (err: unknown) {
+      setResolveError(err instanceof Error ? err.message : 'Failed to resolve');
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleSaveOwner = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+    setOwnerSaving(true);
+    setOwnerSuccess('');
+    try {
+      await patchLead(token, lead.id, { owner_email: ownerEmailInput.trim() || null });
+      setLead({ ...lead, owner_email: ownerEmailInput.trim() || undefined });
+      setOwnerSuccess('Saved');
+      setTimeout(() => setOwnerSuccess(''), 3000);
+    } catch {
+      // ignore
+    } finally {
+      setOwnerSaving(false);
+    }
+  };
+
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(label);
@@ -297,12 +341,22 @@ export default function LeadDetailPage() {
             {/* Human Handoff Banner */}
             {lead.needs_human && (
               <div className="bg-red-50 border border-red-300 rounded-lg p-5">
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center justify-between gap-3 mb-2">
                   <span className="inline-flex px-3 py-1 text-sm font-bold rounded-full bg-red-600 text-white uppercase tracking-wide">
                     Needs Human Follow-Up
                   </span>
+                  <button
+                    onClick={handleResolveHandoff}
+                    disabled={resolving}
+                    className="bg-red-600 text-white py-1.5 px-4 rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {resolving ? 'Resolving...' : 'Mark as Resolved'}
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-sm">
+                {resolveError && (
+                  <p className="text-xs text-red-700 mt-1">{resolveError}</p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-sm">
                   {lead.handoff_reason && (
                     <div>
                       <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Reason</span>
@@ -319,9 +373,39 @@ export default function LeadDetailPage() {
                       </p>
                     </div>
                   )}
+                  {lead.owner_email && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Assigned Rep</span>
+                      <p className="text-red-900 mt-0.5">{lead.owner_email}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
+
+            {/* Assigned Rep */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Assigned Rep</h2>
+              <div className="flex items-center gap-3">
+                <input
+                  type="email"
+                  value={ownerEmailInput}
+                  onChange={(e) => setOwnerEmailInput(e.target.value)}
+                  placeholder="rep@yourcompany.com"
+                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+                <button
+                  onClick={handleSaveOwner}
+                  disabled={ownerSaving}
+                  className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {ownerSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+              {ownerSuccess && (
+                <p className="text-xs text-green-600 mt-2">{ownerSuccess}</p>
+              )}
+            </div>
 
             {/* Pipeline Stage Manager */}
             <div className="bg-white rounded-lg shadow-sm border p-6">

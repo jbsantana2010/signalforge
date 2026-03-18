@@ -337,6 +337,31 @@ export async function fetchHandoffQueue(token: string) {
   return res.json();
 }
 
+export async function resolveHandoff(token: string, leadId: string) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}/resolve-handoff`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to resolve handoff');
+  }
+  return res.json();
+}
+
+export async function patchLead(token: string, leadId: string, data: { owner_email?: string | null }) {
+  const res = await authFetch(`${API_BASE}/admin/leads/${leadId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to update lead');
+  }
+  return res.json();
+}
+
 export async function createOrgFunnel(token: string, orgId: string, data: {
   name: string; slug: string; enable_sequences?: boolean;
   enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;

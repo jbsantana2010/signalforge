@@ -1,12 +1,54 @@
 """
 Notification service: sends email and SMS notifications for new leads.
+Also provides lightweight handoff notification via engagement_event logging.
 """
 
 import json
+import logging
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import asyncpg
+
+logger = logging.getLogger(__name__)
+
+
+async def notify_handoff_required(
+    conn: asyncpg.Connection,
+    lead_id: str,
+    org_id: str,
+    owner_email: str | None,
+    reason: str,
+) -> None:
+    """
+    Log a rep_notified engagement_event.
+    Does not send any real notification yet — event-based only.
+    Never throws.
+    """
+    from app.services.engagement_service import log_engagement_event
+    try:
+        await log_engagement_event(
+            conn,
+            lead_id=lead_id,
+            org_id=org_id,
+            channel="system",
+            event_type="rep_notified",
+            direction="system",
+            content=None,
+            metadata={
+                "owner_email": owner_email,
+                "reason": reason,
+            },
+        )
+        logger.info(
+            "rep_notified event logged for lead %s — owner=%s", lead_id, owner_email
+        )
+    except Exception as exc:
+        logger.error(
+            "notify_handoff_required failed for lead %s: %s", lead_id, exc
+        )
 
 
 async def send_email(lead: dict, funnel: dict) -> str:

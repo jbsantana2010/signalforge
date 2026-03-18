@@ -1248,3 +1248,99 @@ When `POST /public/inbound/sms` receives a classified reply, `apply_reply_branch
 Branch events are logged to `engagement_events` with event types:
 `branch_interested`, `branch_price`, `branch_info`, `branch_timing`,
 `branch_not_interested`, `handoff_required`
+
+---
+
+## Sprint V3: Rep Notification + Handoff Resolution
+
+### `POST /admin/leads/{id}/resolve-handoff`
+
+Resolves a human handoff for a lead. Idempotent.
+
+**Auth:** JWT Bearer + X-ORG-ID
+
+**Behavior:**
+- If `needs_human` is already false → returns `{"status": "ok"}` immediately
+- Sets `needs_human = false`, clears `handoff_reason` and `handoff_at`
+- Sets `engagement_plans.paused = false` for the active plan
+- Logs a `handoff_resolved` engagement event with `resolved_by: user_id`
+
+**Response:** `{"status": "ok"}`
+
+---
+
+### `PATCH /admin/leads/{id}`
+
+Update lead fields.
+
+**Auth:** JWT Bearer + X-ORG-ID
+
+**Request body:**
+```json
+{ "owner_email": "rep@yourcompany.com" }
+```
+
+Set `owner_email` to `null` to unassign.
+
+**Response:** `{"status": "ok"}`
+
+---
+
+### Lead Detail — V3 new fields
+
+`GET /admin/leads/{id}` now also returns:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `owner_email` | `string \| null` | Assigned rep email |
+
+---
+
+### Handoff Queue — V3 additions
+
+`GET /admin/ops/handoffs` now includes `owner_email` in each item:
+
+```json
+{
+  "count": 1,
+  "leads": [
+    {
+      "id": "uuid",
+      "name": "Maria Garcia",
+      "stage": "contacted",
+      "handoff_reason": "reply_requires_human",
+      "handoff_at": "2026-03-12T10:00:00Z",
+      "owner_email": "rep@solarprime.com"
+    }
+  ]
+}
+```
+
+---
+
+### Notification events
+
+When a `human_needed` or `unknown` reply is classified, a `rep_notified` engagement event is logged:
+
+```json
+{
+  "event_type": "rep_notified",
+  "channel": "system",
+  "direction": "system",
+  "metadata_json": {
+    "owner_email": "rep@solarprime.com",
+    "reason": "reply_requires_human"
+  }
+}
+```
+
+If no `owner_email` is set on the lead, the system falls back to the org's first admin user email. If neither exists, `owner_email` is `null`. No real external notification is sent — event-based only.
+
+---
+
+### Engagement event types (V3 additions)
+
+| Event type | When | Metadata |
+|------------|------|----------|
+| `rep_notified` | human_needed/unknown reply received | `owner_email`, `reason` |
+| `handoff_resolved` | `/resolve-handoff` called | `resolved_by` (user_id) |

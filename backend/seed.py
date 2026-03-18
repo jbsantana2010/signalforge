@@ -876,13 +876,14 @@ async def main():
                     json.dumps({"from_number": "+13105559876", "seeded": True}),
                 )
 
-                # Mark lead needs_human
+                # Mark lead needs_human and assign owner
                 await conn.execute(
                     """
                     UPDATE leads
                     SET needs_human = true,
                         handoff_reason = 'reply_requires_human',
-                        handoff_at = now()
+                        handoff_at = now(),
+                        owner_email = 'rep@solarprime.com'
                     WHERE id = $1
                     """,
                     second_lead_id,

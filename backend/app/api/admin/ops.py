@@ -50,7 +50,7 @@ async def get_handoff_queue(
 
     rows = await conn.fetch(
         """
-        SELECT id, answers_json, stage, handoff_reason, handoff_at
+        SELECT id, answers_json, stage, handoff_reason, handoff_at, owner_email
         FROM leads
         WHERE org_id = $1 AND needs_human = true
         ORDER BY handoff_at DESC NULLS LAST
@@ -68,6 +68,7 @@ async def get_handoff_queue(
             stage=r["stage"] or "new",
             handoff_reason=r["handoff_reason"],
             handoff_at=r["handoff_at"],
+            owner_email=r["owner_email"],
         ))
 
     return HandoffQueueResponse(count=int(count or 0), leads=items)

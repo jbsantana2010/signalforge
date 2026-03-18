@@ -754,3 +754,54 @@ Then:
 - `needs_human` is not automatically cleared when a rep resolves the lead
 - Branching only on SMS inbound — email replies not yet handled
 - Timing reschedule applies only to the first pending SMS step
+
+---
+
+## Sprint V3: Rep Notification + Handoff Resolution
+
+### What was added
+
+- Migration `016_lead_owner.sql` — adds `owner_email TEXT NULL` to `leads`
+- `notification_service.notify_handoff_required()` — logs `rep_notified` engagement event (no external send yet)
+- `engagement_branching.py` — after `needs_human=true`, looks up `owner_email` (lead → org admin fallback) and calls `notify_handoff_required`
+- `POST /admin/leads/{id}/resolve-handoff` — clears handoff state, resumes plan, logs `handoff_resolved` event
+- `PATCH /admin/leads/{id}` — updates `owner_email`
+- `GET /admin/ops/handoffs` — now includes `owner_email` per item
+- Lead detail page — "Assigned Rep" input, "Mark as Resolved" button in banner, owner email shown in banner
+- Ops page — owner email shown per handoff row, inline "Resolve" button
+
+### Testing V3 Flow
+
+```bash
+# Assign owner to a lead
+curl -X PATCH http://localhost:8000/admin/leads/{lead_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-ORG-ID: $ORG_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"owner_email": "rep@solarprime.com"}'
+
+# Resolve a handoff
+curl -X POST http://localhost:8000/admin/leads/{lead_id}/resolve-handoff \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-ORG-ID: $ORG_ID"
+
+# Expected: {"status": "ok"}
+```
+
+After resolve:
+1. `needs_human = false` — banner disappears from lead detail
+2. Engagement plan `paused = false` — worker will resume sending steps
+3. `handoff_resolved` event appears in Engagement Timeline
+4. Ops queue count decrements
+
+### Seed Data (V3)
+
+- **Lead #2 (Maria Garcia)**: `owner_email = 'rep@solarprime.com'` (set at seed time)
+- All other seed behaviour unchanged from V2.1
+
+### Limitations (V3)
+
+- `rep_notified` event is logged only — no actual email/SMS sent to rep
+- Resolving a plan only unpauses it; does not re-create cancelled steps
+- `owner_email` is free text — no validation, no user lookup
+- No role system — any admin can resolve any handoff in the org

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import get_current_user, resolve_active_org_id
 from app.database import get_db
-from app.models.schemas import LeadDetail, LeadEngagementResponse, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem, EngagementPlanItem, EngagementStepItem, EngagementEventItem, InboundMessageItem
+from app.models.schemas import LeadDetail, LeadEngagementResponse, LeadIntelligenceResponse, LeadListItem, LeadListResponse, LeadPatchRequest, LeadStageUpdateRequest, LeadStageUpdateResponse, StageHistoryItem, EngagementPlanItem, EngagementStepItem, EngagementEventItem, InboundMessageItem
 from app.services.lead_service import get_lead_detail, get_leads, get_stage_history, insert_stage_history, update_pipeline_fields
 from app.services.lead_intelligence_service import compute_lead_intelligence, intelligence_to_dict
 
@@ -396,6 +396,89 @@ async def get_lead_engagement(
         return LeadEngagementResponse(plan=None, steps=[], events=[], inbound_messages=[])
 
     return LeadEngagementResponse(plan=plan, steps=steps, events=events, inbound_messages=inbound_messages)
+
+
+@router.patch("/leads/{lead_id}")
+async def patch_lead(
+    lead_id: UUID,
+    body: LeadPatchRequest,
+    org_id: str = Depends(resolve_active_org_id),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Update lead fields (currently: owner_email)."""
+    updated = await conn.fetchval(
+        """UPDATE leads SET owner_email = $1
+           WHERE id = $2 AND org_id = $3
+           RETURNING id""",
+        body.owner_email,
+        str(lead_id),
+        org_id,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"status": "ok"}
+
+
+@router.post("/leads/{lead_id}/resolve-handoff")
+async def resolve_handoff(
+    lead_id: UUID,
+    org_id: str = Depends(resolve_active_org_id),
+    current_user: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Resolve a human handoff for a lead.
+    - Clears needs_human, handoff_reason, handoff_at
+    - Resumes paused engagement plan (sets paused = false)
+    - Logs handoff_resolved engagement event
+    Idempotent: if lead.needs_human is already false, returns ok.
+    """
+    import json as _json
+    from app.services.engagement_service import log_engagement_event
+
+    row = await conn.fetchrow(
+        "SELECT needs_human FROM leads WHERE id = $1 AND org_id = $2",
+        str(lead_id), org_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not row["needs_human"]:
+        return {"status": "ok"}
+
+    # Clear handoff state
+    await conn.execute(
+        """UPDATE leads
+           SET needs_human = false,
+               handoff_reason = NULL,
+               handoff_at = NULL
+           WHERE id = $1""",
+        str(lead_id),
+    )
+
+    # Resume paused plan
+    await conn.execute(
+        """UPDATE engagement_plans
+           SET paused = false,
+               escalation_reason = NULL,
+               updated_at = now()
+           WHERE lead_id = $1 AND status = 'active' AND paused = true""",
+        str(lead_id),
+    )
+
+    # Log resolution event
+    await log_engagement_event(
+        conn,
+        lead_id=str(lead_id),
+        org_id=org_id,
+        channel="system",
+        event_type="handoff_resolved",
+        direction="system",
+        content=None,
+        metadata={"resolved_by": current_user.get("email") or current_user.get("user_id")},
+    )
+
+    return {"status": "ok"}
 
 
 @router.get("/leads/{lead_id}/events")

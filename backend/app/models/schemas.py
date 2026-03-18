@@ -112,6 +112,7 @@ class LeadDetail(BaseModel):
     needs_human: bool = False
     handoff_reason: str | None = None
     handoff_at: datetime | None = None
+    owner_email: str | None = None
 
 
 class LeadStageUpdateRequest(BaseModel):
@@ -489,6 +490,11 @@ class HandoffQueueItem(BaseModel):
     stage: str
     handoff_reason: str | None = None
     handoff_at: datetime | None = None
+    owner_email: str | None = None
+
+
+class LeadPatchRequest(BaseModel):
+    owner_email: str | None = None
 
 
 class HandoffQueueResponse(BaseModel):
