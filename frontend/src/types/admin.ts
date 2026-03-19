@@ -305,3 +305,19 @@ export interface HandoffQueueResponse {
   count: number;
   leads: HandoffQueueItem[];
 }
+
+// --- Rep Contact Profiles (V4.1) ---
+
+export interface RepContact {
+  id: string;
+  org_id: string;
+  email: string;
+  phone: string | null;
+  full_name: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RepContactListResponse {
+  contacts: RepContact[];
+}

@@ -500,3 +500,33 @@ class LeadPatchRequest(BaseModel):
 class HandoffQueueResponse(BaseModel):
     count: int
     leads: list[HandoffQueueItem] = []
+
+
+# --- Rep Contact Profiles (V4.1) ---
+
+
+class RepContactItem(BaseModel):
+    id: UUID
+    org_id: UUID
+    email: str
+    phone: str | None = None
+    full_name: str | None = None
+    is_active: bool
+    created_at: datetime
+
+
+class RepContactUpsertRequest(BaseModel):
+    email: str
+    phone: str | None = None
+    full_name: str | None = None
+    is_active: bool = True
+
+
+class RepContactPatchRequest(BaseModel):
+    phone: str | None = None
+    full_name: str | None = None
+    is_active: bool | None = None
+
+
+class RepContactListResponse(BaseModel):
+    contacts: list[RepContactItem] = []

@@ -362,6 +362,49 @@ export async function patchLead(token: string, leadId: string, data: { owner_ema
   return res.json();
 }
 
+export async function fetchRepContacts(token: string) {
+  const res = await authFetch(`${API_BASE}/admin/rep-contacts`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch rep contacts');
+  return res.json();
+}
+
+export async function upsertRepContact(token: string, data: {
+  email: string;
+  phone?: string | null;
+  full_name?: string | null;
+  is_active?: boolean;
+}) {
+  const res = await authFetch(`${API_BASE}/admin/rep-contacts`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to save rep contact');
+  }
+  return res.json();
+}
+
+export async function updateRepContact(token: string, id: string, data: {
+  phone?: string | null;
+  full_name?: string | null;
+  is_active?: boolean;
+}) {
+  const res = await authFetch(`${API_BASE}/admin/rep-contacts/${id}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'Failed to update rep contact');
+  }
+  return res.json();
+}
+
 export async function createOrgFunnel(token: string, orgId: string, data: {
   name: string; slug: string; enable_sequences?: boolean;
   enable_email?: boolean; enable_sms?: boolean; enable_call?: boolean;

@@ -21,6 +21,7 @@ from app.api.admin import industries as admin_industries
 from app.api.admin import campaigns as admin_campaigns
 from app.api.admin import ai_strategy as admin_ai_strategy
 from app.api.admin import ops as admin_ops
+from app.api.admin import rep_contacts as admin_rep_contacts
 
 
 def _service_flags() -> dict:
@@ -83,6 +84,7 @@ app.include_router(admin_industries.router, tags=["Admin Industries"])
 app.include_router(admin_campaigns.router, prefix="/admin", tags=["Admin Campaigns"])
 app.include_router(admin_ai_strategy.router, prefix="/admin", tags=["Admin AI Strategy"])
 app.include_router(admin_ops.router, prefix="/admin", tags=["Admin Ops"])
+app.include_router(admin_rep_contacts.router, prefix="/admin", tags=["Admin Rep Contacts"])
 
 # Twilio webhook router (created by Agent B)
 try:

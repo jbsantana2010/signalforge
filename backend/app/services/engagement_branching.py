@@ -111,6 +111,14 @@ async def apply_reply_branching(
                     org_id,
                 )
 
+            # Fetch inbound message body for notification content
+            inbound_body: str = ""
+            if inbound_message_id:
+                inbound_body = await conn.fetchval(
+                    "SELECT message_body FROM inbound_messages WHERE id = $1",
+                    inbound_message_id,
+                ) or ""
+
             from app.services.notification_service import notify_handoff_required
             await notify_handoff_required(
                 conn,
@@ -118,6 +126,8 @@ async def apply_reply_branching(
                 org_id=org_id,
                 owner_email=owner_email,
                 reason="reply_requires_human",
+                classification=classification,
+                message_body=inbound_body,
             )
 
         else:

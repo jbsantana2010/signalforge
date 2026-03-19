@@ -136,6 +136,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Ops
               </a>
+              <a
+                href="/admin/rep-contacts"
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Rep Contacts
+              </a>
             </div>
             <div className="flex items-center space-x-4">
               {orgs.length > 1 && (

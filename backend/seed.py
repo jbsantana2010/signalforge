@@ -928,6 +928,26 @@ async def main():
         else:
             print("  Second lead not found — skipping handoff seed")
 
+        # ── Rep contacts (V4.1) ──────────────────────────────────────────────
+        print("Seeding rep contact for SolarPrime...")
+        await conn.execute(
+            """
+            INSERT INTO rep_contacts (org_id, email, phone, full_name, is_active)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (org_id, email) DO UPDATE
+                SET phone     = EXCLUDED.phone,
+                    full_name = EXCLUDED.full_name,
+                    is_active = EXCLUDED.is_active,
+                    updated_at = now()
+            """,
+            org_id,
+            "rep@solarprime.com",
+            "+17875550100",
+            "Solar Rep",
+            True,
+        )
+        print("  Rep contact seeded: rep@solarprime.com / +17875550100")
+
         # ── Warder org + website-demo funnel (Basin webhook target) ──────────
         print("Creating Warder org...")
         warder_org_id = await conn.fetchval(
