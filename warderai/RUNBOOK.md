@@ -1,0 +1,950 @@
+# LeadForge – Sprint 1 Runbook
+
+## Prerequisites
+
+- Python 3.11+
+- Node.js 18+ / npm
+- PostgreSQL 14+ (running locally or via Docker)
+
+## Quick Start with Docker (Postgres)
+
+```bash
+# Start Postgres (if not running)
+docker run -d \
+  --name leadforge-db \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=leadforge \
+  -p 5432:5432 \
+  postgres:16
+```
+
+## Backend Setup
+
+```bash
+cd backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run migrations and seed data
+python seed.py
+
+# Start the API server
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend runs at: http://localhost:8000
+API docs at: http://localhost:8000/docs
+
+## Frontend Setup
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+Frontend runs at: http://localhost:3000
+
+## Test the Application
+
+1. **Public Funnel**: http://localhost:3000/f/solar-prime
+   - Toggle between English and Spanish
+   - Fill out the multi-step form
+   - Submit to see the thank you page
+
+2. **Admin Login**: http://localhost:3000/admin/login
+   - Email: `admin@solarprime.com`
+   - Password: `admin123`
+
+3. **Admin Leads**: http://localhost:3000/admin/leads
+   - View submitted leads
+   - Click "View" to see lead details
+   - Use search and language filter
+
+## Environment Variables
+
+### Backend (.env or environment)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| DATABASE_URL | postgresql+asyncpg://postgres:postgres@localhost:5432/leadforge | Postgres connection string |
+| JWT_SECRET | dev-secret-change-me | JWT signing secret |
+| JWT_ALGORITHM | HS256 | JWT algorithm |
+| JWT_EXPIRE_MINUTES | 480 | Token expiration |
+| CORS_ORIGINS | http://localhost:3000 | Allowed CORS origins |
+
+### Frontend (.env.local)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| NEXT_PUBLIC_API_URL | http://localhost:8000 | Backend API URL |
+
+## Seed Data
+
+The seed script creates:
+- **Org**: SolarPrime Inc (slug: solarprime)
+- **Admin User**: admin@solarprime.com / admin123
+- **Funnel**: solar-prime (3-step solar/real estate lead funnel)
+- **Sample Leads**: 5 leads with varied data
+
+To re-seed (resets data):
+```bash
+cd backend
+python seed.py
+```
+
+The seed now also creates:
+- **Org**: Warder AI (slug: `warder`)
+- **Funnel**: `website-demo` (Basin webhook target)
+
+## Basin Webhook – Warder Lead Intake
+
+### POST /public/leads/basin
+
+Receives demo request submissions from warderai.com via Basin and creates them as real leads in the Warder pipeline.
+
+### Test locally with curl
+
+```bash
+curl -X POST http://localhost:8000/public/leads/basin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "5551234567",
+    "company": "Acme Corp",
+    "message": "I would like a demo",
+    "page": "https://warderai.com/demo",
+    "referrer": "https://google.com"
+  }'
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "lead_id": "<uuid>",
+  "org_slug": "warder",
+  "funnel_slug": "website-demo"
+}
+```
+
+Test duplicate suppression (run the same command twice within 5 minutes):
+```json
+{ "status": "duplicate_ignored" }
+```
+
+### Connect Basin webhook in production
+
+1. Log in to your Basin account at [usebasin.com](https://usebasin.com).
+2. Open the form you want to forward (your warderai.com demo form).
+3. Go to **Integrations → Webhooks**.
+4. Add a new webhook:
+   - **URL**: `https://your-api-domain.com/public/leads/basin`
+   - **Method**: `POST`
+   - **Format**: `JSON`
+5. Save. Basin will POST each new submission to this endpoint.
+6. Confirm the first real submission appears in the Warder org lead list in the admin dashboard.
+
+> No auth or signature validation is required at this stage. Both can be added later without changing the endpoint contract.
+
+## Sprint 2: Automation Engine
+
+### New Environment Variables
+
+Add these to your `backend/.env`:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `CLAUDE_API_KEY` | No | - | Anthropic API key for AI lead scoring. Falls back to deterministic stub if missing. |
+| `SMTP_HOST` | No | - | SMTP server hostname for email notifications |
+| `SMTP_PORT` | No | 587 | SMTP server port |
+| `SMTP_USER` | No | - | SMTP authentication username |
+| `SMTP_PASS` | No | - | SMTP authentication password |
+| `SMTP_FROM` | No | - | From email address for notifications |
+| `TWILIO_ACCOUNT_SID` | No | - | Twilio account SID for SMS and voice calls |
+| `TWILIO_AUTH_TOKEN` | No | - | Twilio auth token |
+| `TWILIO_WEBHOOK_SECRET` | No | `dev-webhook-secret` | Shared secret for validating Twilio webhook callbacks |
+| `BASE_URL` | No | `http://localhost:8000` | Public base URL for webhook callbacks |
+
+### Automation Features
+
+Sprint 2 adds automatic lead processing on submission:
+1. **Routing**: Tags and priority assignment based on funnel routing rules
+2. **AI Scoring**: Lead score (0-100) and summary generation
+3. **Email Notification**: Optional email to notification addresses
+4. **SMS Notification**: Optional SMS to lead via Twilio
+5. **Bridge Call**: Optional rep-to-lead phone bridge via Twilio Voice
+
+All automation is non-blocking — lead submission returns immediately.
+
+### Feature Toggles
+
+Each funnel has independent toggles:
+- `auto_email_enabled` — Send email notifications on new leads
+- `auto_sms_enabled` — Send SMS to leads via Twilio
+- `auto_call_enabled` — Initiate rep bridge calls via Twilio Voice
+
+Configure via Admin UI: `/admin/funnels/{id}/settings`
+
+### Working Hours
+
+Bridge calls respect working hours (server time):
+- `working_hours_start` (default: 9) — Hour to start placing calls (0-23)
+- `working_hours_end` (default: 19) — Hour to stop placing calls (0-23)
+- Outside this window, calls are skipped with status `skipped_outside_hours`
+
+### Running Migration
+
+The seed script automatically runs all migrations:
+```bash
+cd backend
+python seed.py
+```
+
+### New Admin Endpoints
+
+- `GET /admin/funnels/{id}` — Funnel detail with automation settings
+- `PATCH /admin/funnels/{id}` — Update funnel automation settings
+
+### New Public Endpoints (Twilio Webhooks)
+
+- `POST /public/twilio/rep-answer` — TwiML for rep call answer
+- `POST /public/twilio/rep-gather` — TwiML for rep digit input
+- `POST /public/twilio/status` — Status callback for calls/SMS
+
+## Sprint 6: Pipeline & Real Revenue Tracking
+
+### What Changed
+
+- Migration `010_pipeline.sql` adds `stage`, `deal_amount`, and `stage_updated_at` columns to `leads`
+- New `PATCH /admin/leads/{id}/stage` endpoint to update lead pipeline stage
+- Valid stages: `new`, `contacted`, `qualified`, `appointment`, `won`, `lost`
+- When stage is `won`, `deal_amount` is required (400 if missing)
+- Dashboard metrics now include: `actual_revenue`, `won_deals`, `lost_deals`, `actual_close_rate`, `pipeline_value`
+- Campaign metrics now include: `won_deals`, `actual_revenue`, `actual_roas`
+- Frontend lead detail page has a Pipeline Stage manager with visual progress bar
+- Dashboard shows two KPI rows: estimated metrics and actual revenue metrics
+- Campaign table shows Won Deals, Actual Revenue, and Actual ROAS columns
+- Seed data marks lead #1 as `won` with `deal_amount = $8,400`
+
+### Migration
+
+Run `python seed.py` to apply `010_pipeline.sql` and update seed data with pipeline stage.
+
+### Testing Pipeline Flow
+
+1. Login as admin: `admin@solarprime.com / admin123`
+2. Navigate to Dashboard — verify Actual Revenue shows `$8,400` (from seeded won deal)
+3. Navigate to Leads — click any lead
+4. Use the Pipeline Stage dropdown to change stage
+5. Set a lead to "Won" — deal amount field appears, enter a value, save
+6. Return to Dashboard — verify Actual Revenue updated
+7. Navigate to Campaigns — verify Won Deals and Actual ROAS columns show data
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| PATCH | /admin/leads/{id}/stage | JWT + X-ORG-ID | Update lead pipeline stage and deal amount |
+
+---
+
+## Sprint 5E: Conversion Assist (Human-in-the-Loop AI)
+
+### What Changed
+
+- New `POST /admin/leads/{id}/assist` endpoint generates AI-powered conversion coaching per lead
+- `generate_conversion_assist()` added to `ai_service.py` with Claude API and deterministic fallback
+- Returns structured JSON: `next_action`, `sms_script`, `email_script`, `call_talking_points`
+- Safe mode provides stage-specific scripts when Claude API key is not configured
+- Frontend "AI Conversion Assist" section added to lead detail page with copy buttons
+- Yellow "Safe Mode" badge shown when using deterministic fallback
+- Never auto-sends messages — human-in-the-loop only
+
+### Testing
+
+1. Navigate to any lead detail page
+2. Click "Generate Assist" button
+3. Verify scripts appear with next action, SMS, email, and call talking points
+4. Click "Copy" buttons to copy SMS or email scripts
+5. Change lead stage → regenerate → verify scripts adapt to new stage
+6. Without `CLAUDE_API_KEY` set, yellow "Safe Mode" badge should appear
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/leads/{id}/assist | JWT + X-ORG-ID | AI conversion assist for a lead |
+
+---
+
+## Sprint 5C: Stale Org ID Auto-Recovery
+
+### What Changed
+
+- `getActiveOrgId()` in `auth.ts` now validates stored values are proper UUIDs; rejects `""`, `"null"`, `"undefined"`, and non-UUID strings
+- New `isValidUuid()`, `clearActiveOrgId()`, `markOrgWasReset()`, and `consumeOrgWasReset()` helpers in `auth.ts`
+- `authHeaders()` in `api.ts` only injects `X-ORG-ID` when the stored value passes UUID validation
+- New `authFetch()` wrapper: if any authenticated request returns 403 and an `X-ORG-ID` was sent, it clears the stale org, flags the reset, and retries once without the header
+- `AdminLayout` bootstraps the active org from the agency org list on every load — if the stored org is missing/invalid/not in the list, it resets to the first available org
+- Amber banner "Active org was reset because data changed" auto-hides after 6 seconds
+- Backend 403 detail message improved to: `"Invalid X-ORG-ID for this agency/org. Clear active org and retry."`
+
+### After DB Reseed
+
+The UI auto-recovers after `python seed.py` resets the database:
+
+1. Old org UUIDs in `localStorage` no longer exist in the database
+2. The next authenticated request gets a 403
+3. `authFetch` catches the 403, clears the stale org, and retries without `X-ORG-ID`
+4. `AdminLayout` detects the missing org and sets it to the first org from `/admin/agency/orgs`
+5. An amber notice briefly appears to inform the user
+6. No manual `localStorage` clearing required
+
+---
+
+## Sprint 5B: AI Campaign Strategy Engine
+
+### What Changed
+
+- New endpoint `POST /admin/ai/ad-strategy` generates a complete campaign kit
+- AI service (`ai_service.py`) extended with `generate_ad_strategy()` function
+- Claude prompt uses org industry, deal value, close rate, and scoring config
+- Deterministic stubs for marine_dealer, equipment_dealer, and generic industries
+- Frontend page at `/admin/ai-strategy` with goal/budget inputs and collapsible output sections
+- "AI Strategy" nav link added to admin layout
+- Safe mode badge shown when Claude API key is not configured
+
+### Strategy Output Structure
+
+```json
+{
+  "angles": ["4-5 strategic angles"],
+  "hooks": ["6-8 attention-grabbing hooks"],
+  "offers": ["3-4 offer suggestions"],
+  "targeting": ["4 audience targeting suggestions"],
+  "ads": [
+    {"primary_text": "...", "headline": "...", "cta": "..."}
+  ],
+  "mode": "claude|stub"
+}
+```
+
+### Usage
+
+1. Navigate to `/admin/ai-strategy`
+2. Select a campaign goal (sales, traffic, financing)
+3. Enter monthly budget
+4. Optionally add notes for context
+5. Click "Generate Campaign Strategy"
+6. Copy individual hooks, ads, or entire ad blocks
+
+### Safe Mode
+
+When `CLAUDE_API_KEY` is not configured, the system returns industry-specific deterministic stubs. A yellow badge indicates safe mode. Generation still works — just returns pre-built templates.
+
+### New Endpoint
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/ai/ad-strategy | JWT + X-ORG-ID | Generate ad campaign strategy |
+
+---
+
+## Sprint 5A: Campaign Attribution Engine
+
+### What Changed
+
+- New `campaigns` table (migration `009_campaigns.sql`) with `(org_id, utm_campaign)` unique constraint
+- `GET /admin/campaigns` returns per-campaign metrics: leads, avg AI score, estimated revenue, CPL, ROAS
+- `POST /admin/campaigns` creates a campaign with source, name, utm_campaign key, and optional ad_spend
+- `PATCH /admin/campaigns/{id}` updates ad_spend for ROAS recalculation
+- Campaign attribution works by matching `lead.source_json->>'utm_campaign'` against `campaign.utm_campaign`
+- Frontend page at `/admin/campaigns` with create form and metrics table (ROAS color-coded)
+- "Campaigns" nav link added to admin layout
+- Seed includes a sample campaign ("Summer Solar Push", utm: solar-summer, spend: $250)
+
+### How It Works
+
+1. Create a campaign in the UI or via API with a `utm_campaign` key
+2. Use that key in your funnel links: `https://yoursite.com/f/solar-prime?utm_campaign=solar-summer`
+3. Leads submitted with matching UTM params are automatically attributed
+4. Enter ad spend manually — CPL and ROAS calculate automatically
+5. No ad platform APIs required
+
+### Revenue Attribution Formula
+
+```
+estimated_revenue = leads × (close_rate_percent / 100) × avg_deal_value
+cost_per_lead = ad_spend / leads
+roas = estimated_revenue / ad_spend
+```
+
+### Migration
+
+Run `python seed.py` to apply `009_campaigns.sql` and seed a sample campaign.
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/campaigns | JWT + X-ORG-ID | Campaign metrics |
+| POST | /admin/campaigns | JWT + X-ORG-ID | Create campaign |
+| PATCH | /admin/campaigns/{id} | JWT + X-ORG-ID | Update ad spend |
+
+---
+
+## Industry Templates
+
+### What Changed
+
+- New `industries` and `industry_templates` tables (migration `008_industries.sql`)
+- `orgs` table gains `industry_id` FK and `scoring_config` JSONB column
+- Three built-in industries seeded: `generic`, `marine_dealer`, `equipment_dealer`
+- Each industry has a template defining: default funnel schema, sequence config, scoring rubric, avg deal value, close rate
+- Org creation (`POST /admin/agency/orgs`) accepts optional `industry_slug` to pre-configure the org
+- Funnel creation uses the org's industry template for schema and sequence defaults
+- AI scoring reads `scoring_config` from the org when present
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/industries | JWT | List all industries |
+| GET | /admin/industries/{slug}/template | JWT | Preview industry template |
+
+### Onboarding Flow
+
+The onboarding UI now includes an industry dropdown. Selecting an industry shows a preview of the template defaults (deal value, close rate, funnel fields). The selected industry is sent as `industry_slug` when creating the org.
+
+### Migration
+
+Run `python seed.py` to apply `008_industries.sql` and seed industry data. Existing orgs are backfilled to `generic`.
+
+---
+
+## Sprint 4A: White-Label Foundation (Agency Layer)
+
+### What Changed
+
+- New `agencies` table with `id`, `name`, `created_at`
+- `orgs` table now has an optional `agency_id` FK to `agencies`
+- JWT tokens include `agency_id` claim when the user's org belongs to an agency
+- Seed creates a default agency ("WaveLaunch Marketing") and links the demo org
+
+### New Admin Endpoint
+
+- `GET /admin/agency/orgs` — Lists all orgs for the current user's agency (falls back to single org if no agency)
+
+### Migration
+
+Run `python seed.py` to apply `004_agency.sql` and seed the default agency.
+
+## Sprint 4B: Org Switcher + White-Label Branding
+
+### What Changed
+
+- New columns on `orgs`: `display_name`, `logo_url`, `primary_color`, `support_email` (migration `005_org_branding.sql`)
+- `GET /admin/agency/orgs` now returns branding fields per org
+- New `resolve_active_org_id` dependency in `auth.py` — reads `X-ORG-ID` header, validates against agency membership
+- Admin endpoints (`/admin/leads`, `/admin/funnels`) use resolved org_id so agency users can view data for any org in their agency
+- Frontend org switcher dropdown in admin nav (visible when agency has multiple orgs)
+- All authenticated API calls inject `X-ORG-ID` header from `localStorage`
+- Admin nav title and color adapt to the active org's branding
+
+### How Org Switching Works
+
+1. On login, frontend fetches `GET /admin/agency/orgs` to get available orgs
+2. Active org ID is stored in `localStorage` (`leadforge_active_org_id`)
+3. Every authenticated fetch includes `X-ORG-ID: <active_org_id>` header
+4. Backend `resolve_active_org_id` validates the header org belongs to the user's agency
+5. Non-agency users always see their home org (header is ignored)
+
+### Migration
+
+Run `python seed.py` to apply `005_org_branding.sql` and update seed data with branding fields.
+
+## Sprint 4C: Agency Client Onboarding
+
+### What Changed
+
+- **POST /admin/agency/orgs** — Create a new client org under the current user's agency
+- **POST /admin/agency/orgs/{org_id}/funnels** — Create a funnel for a target org with template defaults
+- **Onboarding UI** at `/admin/agency/onboard` — Single-page form to create org + funnel in one flow
+- "Onboard Client" nav link in admin layout (visible for agency users)
+- After onboarding, the new org becomes the active org and user is redirected to funnels
+
+### Onboarding Flow
+
+1. Agency admin clicks "Onboard Client" in the admin nav
+2. Fills in client org details (name, slug, branding) and funnel details (name, slug, sequence toggle)
+3. On submit:
+   - `POST /admin/agency/orgs` creates the org
+   - `POST /admin/agency/orgs/{org_id}/funnels` creates a default 3-step funnel with routing rules and sequence config
+   - Active org switches to the new org
+   - Redirects to `/admin/funnels`
+4. The org switcher dropdown now includes the new org
+
+### Template Defaults (when schema_json omitted)
+
+- **3-step form:** Service (solar/roofing/other) → Zip + Name → Phone + Contact Time
+- **Routing rules:** service==solar → tag "solar", priority "high"
+- **Sequence config (if enabled):** Day 0 welcome, Day 1 check-in, Day 3 follow-up
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | /admin/agency/orgs | JWT (agency) | Create client org |
+| POST | /admin/agency/orgs/{org_id}/funnels | JWT (agency) | Create funnel for org |
+
+## Sprint 4D: Revenue Intelligence Dashboard
+
+### What Changed
+
+- Migration `006_org_metrics.sql` adds `avg_deal_value` and `close_rate_percent` to `orgs`
+- New `analytics_service.py` computes dashboard metrics from lead data
+- `GET /admin/dashboard` returns KPIs (total leads, 7-day leads, AI distribution, response time, revenue estimate)
+- `PATCH /admin/org/settings` updates deal value and close rate for the active org
+- Dashboard page at `/admin/dashboard` with KPI cards and AI distribution bars
+- Revenue Settings section added to funnel settings page
+- "Dashboard" nav link added to admin layout
+
+### Revenue Formula
+
+```
+estimated_revenue = total_leads × (close_rate_percent / 100) × avg_deal_value
+```
+
+### Migration
+
+Run `python seed.py` to apply `006_org_metrics.sql` and seed default values (deal value: $5000, close rate: 10%).
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/dashboard | JWT + X-ORG-ID | Dashboard metrics |
+| PATCH | /admin/org/settings | JWT + X-ORG-ID | Update deal value & close rate |
+
+---
+
+## Engagement Engine V1
+
+Migration: `013_engagement.sql` adds three tables: `engagement_plans`, `engagement_steps`, `engagement_events`.
+
+### How it works
+
+1. When a lead is processed through `automation_service.py`, `create_engagement_plan()` is called to build a plan with 4 default follow-up steps.
+2. `process_due_engagement_steps()` immediately fires any steps whose `scheduled_for` has passed (Step 1 fires ~30 seconds after lead creation).
+3. Steps attempt delivery via existing Twilio (SMS) and SMTP (email) paths.
+4. If provider config is missing, steps are marked `skipped_missing_config` — nothing crashes.
+5. All delivery attempts are logged to `engagement_events`.
+
+### Default follow-up timing
+
+| Step | Channel | Delay |
+|------|---------|-------|
+| 1    | SMS     | +30 seconds |
+| 2    | Email   | +2 minutes  |
+| 3    | SMS     | +1 hour     |
+| 4    | Email   | +24 hours   |
+
+### Admin UI
+
+Lead detail page → **Engagement Timeline** section shows:
+- Plan status and current step progress
+- All scheduled steps with channel badge, scheduled time, and status badge
+- All engagement events with timestamp, channel, event type, and content snippet
+
+### Checking engagement data
+
+```sql
+-- View plans for a lead
+SELECT * FROM engagement_plans WHERE lead_id = '<uuid>';
+
+-- View steps
+SELECT step_order, channel, scheduled_for, status, executed_at
+FROM engagement_steps WHERE plan_id = '<plan_uuid>' ORDER BY step_order;
+
+-- View events
+SELECT channel, event_type, direction, content, created_at
+FROM engagement_events WHERE lead_id = '<uuid>' ORDER BY created_at;
+```
+
+### New Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | /admin/leads/{id}/engagement | JWT + X-ORG-ID | Plan + steps + events for a lead |
+
+### Current Limitations (V1)
+
+- No inbound SMS/email reply classification
+- No AI-generated message content (deterministic templates only)
+- Call channel not implemented (marked skipped)
+- No escalation logic
+- Worker runs inline with lead submission — no background scheduler yet
+
+---
+
+## Engagement Engine V1.1 — Scheduler + Reliability
+
+### What Changed
+
+- `process_due_engagement_steps()` now returns a summary dict: `{processed, sent, skipped_missing_config, failed}`
+- Call channel steps are explicitly marked `skipped_missing_config` with reason `call_not_supported_v1` logged
+- All engagement events include richer metadata: `step_id`, `step_order`, `plan_id`, `status`
+- `GET /admin/leads/{id}/engagement` never returns 500 — degrades gracefully to `{plan: null, steps: [], events: []}`
+- New endpoint `POST /admin/ops/engagement/run` triggers the worker manually
+- Admin Ops page (`/admin/ops`) has a "Run Due Engagement Steps" button with result summary panel
+- Engagement Timeline on lead detail shows "Preview" toggle per step to inspect SMS body and email content
+- Seed data enriched: step 2 is `skipped_missing_config`, events include `step_id` in metadata, `plan_created` event added
+
+### Manual Worker Trigger
+
+```bash
+# Trigger due engagement steps manually
+curl -X POST http://localhost:8000/admin/ops/engagement/run \
+  -H "Authorization: Bearer $TOKEN"
+
+# Response:
+# {
+#   "status": "ok",
+#   "processed": 2,
+#   "sent": 1,
+#   "skipped_missing_config": 1,
+#   "failed": 0
+# }
+```
+
+Or use the Ops UI: navigate to `/admin/ops` → click "Run Due Engagement Steps".
+
+### Testing Ops Flow
+
+1. Login as admin: `admin@solarprime.com / admin123`
+2. Navigate to `/admin/ops`
+3. Verify System Status shows DB connected, services configured/not
+4. Click "Run Due Engagement Steps"
+5. Verify result panel shows Processed / Sent / Skipped / Failed counts
+6. Navigate to a lead detail page → Engagement Timeline → click "Preview" on a step
+7. Verify SMS body or email subject/body appears inline
+
+### Current Limitations (V1.1)
+
+- No automatic cron scheduler — worker must be triggered manually via the Ops button or API
+- No AI-generated message content (deterministic templates only)
+- Call channel not yet implemented (always `skipped_missing_config`)
+
+---
+
+## Sprint V2: Inbound Replies + Objection Classification
+
+### What was added
+
+- `inbound_messages` table (migration 014)
+- `POST /public/inbound/sms` — inbound reply webhook
+- `reply_classifier.py` — deterministic keyword-based classification
+- `GET /admin/leads/{id}/engagement` now returns `inbound_messages` array
+- Engagement Timeline shows lead replies with classification badge + Copy Response button
+- Escalation: if classification is `human_needed` or `unknown`, plan is paused
+
+### Testing Inbound Replies
+
+```bash
+# Simulate a lead reply (replace with a real lead phone number)
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from": "+13105551234", "body": "This is too expensive"}'
+
+# Expected response:
+# {"status": "ok", "classification": "price", "suggested_response": "I understand..."}
+```
+
+Seed data includes an example inbound message for lead #1 (John Smith) with body "This is too expensive" → classified as `price`.
+
+### Reply Classifications
+
+| Classification | Behavior |
+|----------------|----------|
+| `interested` | Event logged, plan continues |
+| `price` | Event logged, plan continues |
+| `timing` | Event logged, plan continues |
+| `info` | Event logged, plan continues |
+| `not_interested` | Event logged, plan continues |
+| `human_needed` | Plan **paused**, escalated_to_human event created |
+| `unknown` | Plan **paused**, escalated_to_human event created |
+
+### Human-in-the-Loop Design
+
+Warder does **not** auto-send replies. The suggested response is:
+- Stored in `inbound_messages.suggested_response`
+- Displayed in the Engagement Timeline with a "Copy Response" button
+- Used by the human agent to manually reply
+
+### Current Limitations (V2)
+
+- Inbound email replies not yet handled (SMS only)
+- No AI-generated suggested responses (deterministic templates only)
+- Replies do not automatically advance or branch the engagement plan
+- Phone matching uses 10-digit suffix — may match wrong lead if duplicates exist
+
+---
+
+## Sprint V2.1: Branching + Human Handoff
+
+### What was added
+
+- Migration `015_handoff_state.sql` — adds `needs_human`, `handoff_reason`, `handoff_at` to `leads`
+- `engagement_branching.py` — deterministic branching service
+- `POST /public/inbound/sms` now calls `apply_reply_branching()` instead of inline escalation
+- `GET /admin/ops/handoffs` — org-scoped handoff queue (count + 5 most recent)
+- Lead detail API now returns `needs_human`, `handoff_reason`, `handoff_at`
+- Lead detail UI: red "Needs Human Follow-Up" banner with reason + timestamp
+- Engagement Timeline: cancelled steps shown with grey strikethrough badge
+- Ops page: "Human Handoff Queue" section with count + recent list
+
+### Branching Rules
+
+| Classification | Plan | Steps | Lead flags |
+|----------------|------|-------|------------|
+| `interested` | active | unchanged | none |
+| `price` | active | unchanged | none |
+| `info` | active | unchanged | none |
+| `timing` | active | next pending SMS rescheduled +24h | none |
+| `not_interested` | **paused** | pending → **cancelled** | none |
+| `human_needed` | **paused** | pending → **cancelled** | `needs_human=true` |
+| `unknown` | **paused** | pending → **cancelled** | `needs_human=true` |
+
+### Testing Handoff Flow
+
+```bash
+# Send a human_needed inbound reply
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "I need to speak to a real person"}'
+
+# Expected response:
+# {"status": "ok", "classification": "human_needed", "suggested_response": "..."}
+```
+
+Then:
+1. Open the lead in `/admin/leads/{id}` — red "Needs Human Follow-Up" banner appears
+2. Engagement Timeline shows pending steps with `cancelled` badge
+3. Navigate to `/admin/ops` — "Human Handoff Queue" shows count ≥ 1
+
+### Seed Data
+
+- **Lead #2 (Maria Garcia)**: `needs_human=true`, engagement plan paused, 2 steps cancelled, `handoff_required` event logged
+- **Lead #1 (John Smith)**: unchanged — seeded `price` classification from V2
+
+### Limitations (V2.1)
+
+- No rep notification via SMS/email yet (handoff is queue-visible only)
+- `needs_human` is not automatically cleared when a rep resolves the lead
+- Branching only on SMS inbound — email replies not yet handled
+- Timing reschedule applies only to the first pending SMS step
+
+---
+
+## Sprint V3: Rep Notification + Handoff Resolution
+
+### What was added
+
+- Migration `016_lead_owner.sql` — adds `owner_email TEXT NULL` to `leads`
+- `notification_service.notify_handoff_required()` — logs `rep_notified` engagement event (no external send yet)
+- `engagement_branching.py` — after `needs_human=true`, looks up `owner_email` (lead → org admin fallback) and calls `notify_handoff_required`
+- `POST /admin/leads/{id}/resolve-handoff` — clears handoff state, resumes plan, logs `handoff_resolved` event
+- `PATCH /admin/leads/{id}` — updates `owner_email`
+- `GET /admin/ops/handoffs` — now includes `owner_email` per item
+- Lead detail page — "Assigned Rep" input, "Mark as Resolved" button in banner, owner email shown in banner
+- Ops page — owner email shown per handoff row, inline "Resolve" button
+
+### Testing V3 Flow
+
+```bash
+# Assign owner to a lead
+curl -X PATCH http://localhost:8000/admin/leads/{lead_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-ORG-ID: $ORG_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"owner_email": "rep@solarprime.com"}'
+
+# Resolve a handoff
+curl -X POST http://localhost:8000/admin/leads/{lead_id}/resolve-handoff \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-ORG-ID: $ORG_ID"
+
+# Expected: {"status": "ok"}
+```
+
+After resolve:
+1. `needs_human = false` — banner disappears from lead detail
+2. Engagement plan `paused = false` — worker will resume sending steps
+3. `handoff_resolved` event appears in Engagement Timeline
+4. Ops queue count decrements
+
+### Seed Data (V3)
+
+- **Lead #2 (Maria Garcia)**: `owner_email = 'rep@solarprime.com'` (set at seed time)
+- All other seed behaviour unchanged from V2.1
+
+### Limitations (V3)
+
+- `rep_notified` event is logged only — no actual email/SMS sent to rep
+- Resolving a plan only unpauses it; does not re-create cancelled steps
+- `owner_email` is free text — no validation, no user lookup
+- No role system — any admin can resolve any handoff in the org
+
+---
+
+## Sprint V5: Close the Loop + Call Fix
+
+### What Changed
+
+**1. Persistent Engagement Scheduler (APScheduler)**
+- `apscheduler>=3.10.0` added to `requirements.txt`
+- `AsyncIOScheduler` wired into the FastAPI `lifespan` context in `main.py`
+- `process_due_engagement_steps(pool)` runs automatically every **60 seconds** on startup
+- Scheduler shuts down cleanly on app exit
+- Log line on startup: `Engagement scheduler started (interval: 60s)`
+- Ops page note "Automatic cron scheduler is not yet enabled" is now historical
+
+**2. Auto-Send Suggested Replies**
+- `POST /public/inbound/sms` now auto-sends the `suggested_response` back to the lead via Twilio when classification is `interested`, `price`, `info`, or `timing`
+- Sends from the funnel's `twilio_from_number` — gracefully skips if Twilio is not configured
+- Logs an `sms_auto_reply_sent` engagement event on success
+- `not_interested`, `human_needed`, `unknown` still go to human review only
+
+**3. Old Sequence System Disabled**
+- Steps `g` (schedule_sequences) and `i` (process_due_sequences) in `automation_service.py` are commented out
+- Engagement engine is now the single source of truth for follow-up delivery
+- No duplicate messages between sequence_worker and engagement_worker
+
+**4. Twilio Bridge Call Pool Fix**
+- `rep-gather` and `status` endpoints in `twilio.py` previously used `request.app.state.pool` which was never set → runtime `AttributeError`
+- Fixed: both now use `import app.database as _db_mod; _db_mod.pool`
+- Bridge call flow (rep-answer → rep-gather → dial lead) is now functional when Twilio is configured
+
+**5. Rep Assignment Dropdown**
+- Lead detail page `/admin/leads/{id}` now loads rep contacts from `/admin/rep-contacts` on page load
+- "Assigned Rep" section shows a `<select>` dropdown with rep name + email when contacts exist
+- Falls back to plain email input + link to add reps when no rep contacts are configured
+- Dropdown preselects the current `owner_email` value
+
+**6. Timeline Visibility**
+- `getEventLabel()` helper maps raw event types to human-readable labels with emoji
+- Applied in both the Automation Events log and the Engagement Events section
+- Key labels: `sms_auto_reply_sent` → 🤖 Auto-Reply Sent, `rep_notified` → 🔔 Rep Notified, `cancelled` → 🚫 Cancelled, `sms_reply` → 💬 Lead Replied (SMS)
+
+---
+
+### Testing V5 Locally
+
+#### Test 1 — Scheduler boots automatically
+
+```bash
+uvicorn app.main:app --reload --port 8000
+# Look for in stdout:
+# INFO - Engagement scheduler started (interval: 60s)
+```
+
+Wait 60 seconds — check the logs for `Engagement worker:` output showing processed/sent/skipped counts. No manual trigger required.
+
+#### Test 2 — Auto-reply on inbound SMS
+
+```bash
+# Requires Twilio configured in .env
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "How much does it cost?"}'
+
+# Expected:
+# {"status": "ok", "classification": "price", "suggested_response": "...", "auto_reply_sent": true}
+```
+
+Then check the lead's Engagement Timeline — should show `💬 Lead Replied (SMS)` inbound event followed by `🤖 Auto-Reply Sent` outbound event.
+
+Without Twilio configured: `"auto_reply_sent": false` — no crash.
+
+#### Test 3 — Human-needed still goes to queue (no auto-reply)
+
+```bash
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "I need to talk to someone"}'
+
+# Expected:
+# {"status": "ok", "classification": "human_needed", "auto_reply_sent": false}
+```
+
+Lead should appear in `/admin/ops` handoff queue. No SMS auto-reply is sent.
+
+#### Test 4 — Bridge call pool fix
+
+```bash
+# Simulate Twilio hitting rep-gather after rep presses 1
+curl -X POST "http://localhost:8000/public/twilio/rep-gather?lead_id=<uuid>&secret=dev-webhook-secret" \
+  -d "Digits=1"
+
+# Before fix: AttributeError: 'State' object has no attribute 'pool'
+# After fix: returns TwiML <Dial> response
+```
+
+#### Test 5 — Rep assignment dropdown
+
+1. Navigate to `/admin/rep-contacts` — add at least one rep with name and email
+2. Navigate to `/admin/leads/{id}` for any lead
+3. "Assigned Rep" section shows a dropdown pre-populated with reps
+4. Select a rep → click Save → verify success message
+5. Reload page → rep selection persists
+
+#### Test 6 — No rep contacts (graceful fallback)
+
+1. Delete all rep contacts via the rep contacts page
+2. Navigate to `/admin/leads/{id}`
+3. "Assigned Rep" section shows plain email input + "Add reps →" link
+
+#### Test 7 — Timeline labels
+
+1. Navigate to any lead that has engagement events
+2. Verify events show human-readable labels (🤖 Auto-Reply Sent, 💬 Lead Replied, etc.) instead of raw snake_case strings
+
+---
+
+### Branching Rules (Updated)
+
+| Classification | Auto-Reply? | Plan | Steps | Lead flags |
+|----------------|-------------|------|-------|------------|
+| `interested` | ✅ Yes | active | unchanged | none |
+| `price` | ✅ Yes | active | unchanged | none |
+| `info` | ✅ Yes | active | unchanged | none |
+| `timing` | ✅ Yes | active | next SMS +24h | none |
+| `not_interested` | ❌ No | paused | cancelled | none |
+| `human_needed` | ❌ No | paused | cancelled | `needs_human=true` |
+| `unknown` | ❌ No | paused | cancelled | `needs_human=true` |
+
+---
+
+### New Environment Variable
+
+No new env vars required. APScheduler runs in-process. Auto-reply uses existing `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`.
+
+---
+
+### Limitations (V5)
+
+- Call channel steps still marked `skipped_missing_config` — voice AI not yet implemented
+- Auto-reply sends `suggested_response` as-is (deterministic) — no Claude-generated replies yet
+- Scheduler interval is fixed at 60 seconds — not configurable via env
+- Cancelled steps are not re-created when a handoff is resolved

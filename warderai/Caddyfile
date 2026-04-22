@@ -1,0 +1,87 @@
+# Warder AI — TLS termination + reverse proxy (INF-01)
+#
+# Usage:
+#   1. Replace {$WARDER_DOMAIN} with your pilot domain (e.g. app.warder.ai)
+#      OR export it in the environment: WARDER_DOMAIN=app.warder.ai caddy run
+#   2. Ensure ports 80 and 443 are open to the host.
+#   3. Run:  caddy run --config ./Caddyfile
+#
+# Caddy auto-provisions Let's Encrypt certs. No manual certbot.
+#
+# Layout:
+#   Host Caddy  --HTTPS-->  Public internet
+#                           :80/:443
+#         |
+#         +--> Next.js frontend   (localhost:3000)   for /, /admin/*, /f/*
+#         +--> FastAPI backend    (localhost:8000)   for /public/*, /admin/api/*,
+#                                                       /health
+#
+# Notes:
+#   - The Next.js admin pages call the FastAPI backend from the browser using
+#     NEXT_PUBLIC_API_URL. In production set that to https://{$WARDER_DOMAIN}
+#     (same origin) — NOT http://localhost:8000.
+#   - /admin/api/* is a routing convention so the reverse proxy can tell
+#     backend API calls apart from frontend pages. If you keep the current
+#     backend path style (/admin/* for JSON API), split by Host/Accept header
+#     instead — see alt-config block at bottom.
+
+{$WARDER_DOMAIN} {
+    encode zstd gzip
+
+    # Twilio webhooks + public funnel JSON + health — all backend.
+    handle /public/* {
+        reverse_proxy localhost:8000
+    }
+    handle /health {
+        reverse_proxy localhost:8000
+    }
+
+    # Admin API (backend). Adjust this path prefix to match how the
+    # frontend actually calls the backend in production.
+    handle /admin/api/* {
+        uri strip_prefix /admin/api
+        reverse_proxy localhost:8000
+    }
+
+    # Everything else is the Next.js app.
+    handle {
+        reverse_proxy localhost:3000
+    }
+
+    # Security headers. HSTS only after you're certain the domain is
+    # served exclusively over HTTPS — it's sticky for browsers.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/warder-access.log {
+            roll_size  50mb
+            roll_keep  10
+        }
+        format json
+    }
+}
+
+# HTTP -> HTTPS redirect is automatic in Caddy when you declare an HTTPS
+# host above; no extra block needed.
+
+# -------------------------------------------------------------------------
+# ALT config (commented): if the current backend exposes /admin/* as JSON
+# (which the code suggests it does) and you can't rename to /admin/api/*,
+# route by Host header or a subdomain instead:
+#
+# api.{$WARDER_DOMAIN} {
+#     reverse_proxy localhost:8000
+# }
+# app.{$WARDER_DOMAIN} {
+#     reverse_proxy localhost:3000
+# }
+#
+# Then set NEXT_PUBLIC_API_URL=https://api.{$WARDER_DOMAIN} in the frontend.
+# Cleanest long-term. Requires two DNS records.
+# -------------------------------------------------------------------------

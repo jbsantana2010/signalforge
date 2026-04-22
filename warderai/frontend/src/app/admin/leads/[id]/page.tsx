@@ -1,0 +1,1238 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import AdminLayout from '@/components/admin/AdminLayout';
+import { getToken } from '@/lib/auth';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement, resolveHandoff, patchLead, fetchRepContacts } from '@/lib/api';
+import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse, InboundMessage, RepContact } from '@/types/admin';
+
+interface AutomationEvent {
+  event_type: string;
+  status: string;
+  detail_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const STAGES = ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'] as const;
+
+const STAGE_COLORS: Record<string, string> = {
+  new: 'bg-gray-100 text-gray-800',
+  contacted: 'bg-blue-100 text-blue-800',
+  qualified: 'bg-purple-100 text-purple-800',
+  proposal: 'bg-orange-100 text-orange-800',
+  won: 'bg-green-100 text-green-800',
+  lost: 'bg-red-100 text-red-800',
+};
+
+function StageBadge({ stage }: { stage: string }) {
+  return (
+    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full capitalize ${STAGE_COLORS[stage] || 'bg-gray-100 text-gray-700'}`}>
+      {stage}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const colors: Record<string, string> = {
+    high: 'bg-red-100 text-red-800',
+    medium: 'bg-yellow-100 text-yellow-800',
+    low: 'bg-green-100 text-green-800',
+  };
+  return (
+    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${colors[priority] || 'bg-gray-100 text-gray-700'}`}>
+      {priority}
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    sent: 'bg-green-100 text-green-800',
+    delivered: 'bg-green-100 text-green-800',
+    completed: 'bg-green-100 text-green-800',
+    pending: 'bg-yellow-100 text-yellow-800',
+    queued: 'bg-yellow-100 text-yellow-800',
+    failed: 'bg-red-100 text-red-800',
+    skipped: 'bg-gray-100 text-gray-600',
+  };
+  return (
+    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-700'}`}>
+      {status}
+    </span>
+  );
+}
+
+function AiScoreBadge({ score }: { score: number }) {
+  let color = 'bg-red-100 text-red-800';
+  if (score >= 70) color = 'bg-green-100 text-green-800';
+  else if (score >= 50) color = 'bg-yellow-100 text-yellow-800';
+  return (
+    <span className={`inline-flex px-3 py-1 text-sm font-bold rounded-full ${color}`}>
+      {score}
+    </span>
+  );
+}
+
+export default function LeadDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const [lead, setLead] = useState<LeadDetail | null>(null);
+  const [sequences, setSequences] = useState<LeadSequenceItem[]>([]);
+  const [events, setEvents] = useState<AutomationEvent[]>([]);
+  const [stageHistory, setStageHistory] = useState<StageHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Intelligence
+  const [intelligence, setIntelligence] = useState<LeadIntelligence | null>(null);
+
+  // Engagement
+  const [engagement, setEngagement] = useState<LeadEngagementResponse | null>(null);
+
+  // Stage management
+  const [selectedStage, setSelectedStage] = useState('new');
+  const [dealAmount, setDealAmount] = useState('');
+  const [outcomeReason, setOutcomeReason] = useState('');
+  const [outcomeNote, setOutcomeNote] = useState('');
+  const [stageSaving, setStageSaving] = useState(false);
+  const [stageError, setStageError] = useState('');
+  const [stageSuccess, setStageSuccess] = useState('');
+
+  // Handoff resolution
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState('');
+
+  // Rep assignment
+  const [repContacts, setRepContacts] = useState<RepContact[]>([]);
+  const [ownerEmailInput, setOwnerEmailInput] = useState('');
+  const [ownerSaving, setOwnerSaving] = useState(false);
+  const [ownerSuccess, setOwnerSuccess] = useState('');
+
+  // AI Conversion Assist
+  const [assist, setAssist] = useState<{ mode: string; data: { next_action: string; sms_script: string; email_script: string; call_talking_points: string[] } } | null>(null);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [assistError, setAssistError] = useState('');
+  const [copied, setCopied] = useState('');
+
+  useEffect(() => {
+    const loadLead = async () => {
+      const token = getToken();
+      if (!token) return;
+
+      try {
+        const data = await fetchLeadDetail(token, params.id as string);
+        setLead(data);
+        setSelectedStage(data.stage || 'new');
+        setDealAmount(data.deal_amount ? String(data.deal_amount) : '');
+        setOwnerEmailInput(data.owner_email ?? '');
+        try {
+          const reps = await fetchRepContacts(token);
+          setRepContacts(reps.contacts ?? []);
+        } catch {
+          // Rep contacts are optional — degrade gracefully
+        }
+        try {
+          const seqs = await fetchLeadSequences(token, params.id as string);
+          setSequences(seqs);
+        } catch {
+          // Sequences are optional, don't show error
+        }
+        try {
+          const ev = await fetchLeadEvents(token, params.id as string);
+          setEvents(ev.events ?? []);
+        } catch {
+          // Events are optional
+        }
+        try {
+          const hist = await fetchStageHistory(token, params.id as string);
+          setStageHistory(hist.history ?? []);
+        } catch {
+          // Stage history is optional
+        }
+        try {
+          const intel = await fetchLeadIntelligence(token, params.id as string);
+          setIntelligence(intel);
+        } catch {
+          // Intelligence is optional
+        }
+        try {
+          const eng = await fetchLeadEngagement(token, params.id as string);
+          setEngagement(eng);
+        } catch {
+          // Engagement is optional
+        }
+      } catch {
+        setError('Failed to load lead details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadLead();
+  }, [params.id]);
+
+  const handleStageSave = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+
+    setStageError('');
+    setStageSuccess('');
+    setStageSaving(true);
+
+    try {
+      const payload: { stage: string; deal_amount?: number; outcome_reason?: string; outcome_note?: string } = { stage: selectedStage };
+      if (selectedStage === 'won') {
+        if (!dealAmount || parseFloat(dealAmount) <= 0) {
+          setStageError('Deal amount is required for won deals');
+          setStageSaving(false);
+          return;
+        }
+        payload.deal_amount = parseFloat(dealAmount);
+      }
+      if (selectedStage === 'won' || selectedStage === 'lost') {
+        if (!outcomeReason.trim()) {
+          setStageError('Outcome reason is required when closing a deal');
+          setStageSaving(false);
+          return;
+        }
+        payload.outcome_reason = outcomeReason;
+        if (outcomeNote.trim()) payload.outcome_note = outcomeNote;
+      }
+
+      const result = await updateLeadStage(token, lead.id, payload);
+      const updated = result.lead;
+      setLead(updated);
+      setSelectedStage(updated.stage || 'new');
+      setDealAmount(updated.deal_amount ? String(updated.deal_amount) : '');
+      if (updated.close_probability != null) {
+        setIntelligence({
+          close_probability: updated.close_probability,
+          days_in_stage: updated.days_in_stage ?? null,
+          is_stale: updated.is_stale ?? false,
+          stage_leak_warning: updated.stage_leak_warning ?? false,
+          stage_leak_message: updated.stage_leak_message ?? null,
+        });
+      }
+      setStageSuccess('Stage updated');
+      setOutcomeReason('');
+      setOutcomeNote('');
+      setTimeout(() => setStageSuccess(''), 3000);
+      // Reload stage history
+      try {
+        const hist = await fetchStageHistory(token, lead.id);
+        setStageHistory(hist.history ?? []);
+      } catch { /* ignore */ }
+    } catch (err: unknown) {
+      setStageError(err instanceof Error ? err.message : 'Failed to update stage');
+    } finally {
+      setStageSaving(false);
+    }
+  };
+
+  const handleGenerateAssist = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+    setAssistError('');
+    setAssistLoading(true);
+    try {
+      const result = await generateLeadAssist(token, lead.id);
+      setAssist(result);
+    } catch (err: unknown) {
+      setAssistError(err instanceof Error ? err.message : 'Failed to generate assist');
+    } finally {
+      setAssistLoading(false);
+    }
+  };
+
+  const handleResolveHandoff = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+    setResolving(true);
+    setResolveError('');
+    try {
+      await resolveHandoff(token, lead.id);
+      setLead({ ...lead, needs_human: false, handoff_reason: undefined, handoff_at: undefined });
+      const eng = await fetchLeadEngagement(token, lead.id);
+      setEngagement(eng);
+    } catch (err: unknown) {
+      setResolveError(err instanceof Error ? err.message : 'Failed to resolve');
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleSaveOwner = async () => {
+    const token = getToken();
+    if (!token || !lead) return;
+    setOwnerSaving(true);
+    setOwnerSuccess('');
+    try {
+      await patchLead(token, lead.id, { owner_email: ownerEmailInput.trim() || null });
+      setLead({ ...lead, owner_email: ownerEmailInput.trim() || undefined });
+      setOwnerSuccess('Saved');
+      setTimeout(() => setOwnerSuccess(''), 3000);
+    } catch {
+      // ignore
+    } finally {
+      setOwnerSaving(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label);
+      setTimeout(() => setCopied(''), 2000);
+    });
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  return (
+    <AdminLayout>
+      <div>
+        <button
+          onClick={() => router.push('/admin/leads')}
+          className="text-blue-600 hover:text-blue-800 text-sm font-medium mb-6 inline-block"
+        >
+          &larr; Back to Leads
+        </button>
+
+        {loading && (
+          <div className="text-center text-gray-500 py-12">Loading...</div>
+        )}
+
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            {error}
+          </div>
+        )}
+
+        {lead && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold text-gray-900">Lead Detail</h1>
+              <div className="flex items-center gap-3">
+                <StageBadge stage={lead.stage || 'new'} />
+                {intelligence && lead.stage !== 'won' && lead.stage !== 'lost' && (
+                  <span className={`inline-flex px-2 py-1 text-xs font-bold rounded-full ${
+                    intelligence.close_probability >= 60 ? 'bg-green-100 text-green-800' :
+                    intelligence.close_probability >= 30 ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {intelligence.close_probability}% close
+                  </span>
+                )}
+                {lead.priority && <PriorityBadge priority={lead.priority} />}
+                <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
+                  lead.is_spam
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-green-100 text-green-800'
+                }`}>
+                  {lead.is_spam ? 'Spam' : 'Valid'}
+                </span>
+                <span className="text-sm text-gray-500">
+                  {formatDate(lead.created_at)}
+                </span>
+              </div>
+            </div>
+
+            {/* Human Handoff Banner */}
+            {lead.needs_human && (
+              <div className="bg-red-50 border border-red-300 rounded-lg p-5">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="inline-flex px-3 py-1 text-sm font-bold rounded-full bg-red-600 text-white uppercase tracking-wide">
+                    Needs Human Follow-Up
+                  </span>
+                  <button
+                    onClick={handleResolveHandoff}
+                    disabled={resolving}
+                    className="bg-red-600 text-white py-1.5 px-4 rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {resolving ? 'Resolving...' : 'Mark as Resolved'}
+                  </button>
+                </div>
+                {resolveError && (
+                  <p className="text-xs text-red-700 mt-1">{resolveError}</p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-sm">
+                  {lead.handoff_reason && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Reason</span>
+                      <p className="text-red-900 font-medium mt-0.5 capitalize">
+                        {lead.handoff_reason.replace(/_/g, ' ')}
+                      </p>
+                    </div>
+                  )}
+                  {lead.handoff_at && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Since</span>
+                      <p className="text-red-900 mt-0.5">
+                        {new Date(lead.handoff_at).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                  {lead.owner_email && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase tracking-wide">Assigned Rep</span>
+                      <p className="text-red-900 mt-0.5">{lead.owner_email}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Assigned Rep */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Assigned Rep</h2>
+              {repContacts.length > 0 ? (
+                <div className="flex items-center gap-3">
+                  <select
+                    value={ownerEmailInput}
+                    onChange={(e) => setOwnerEmailInput(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {repContacts.map((rep) => (
+                      <option key={rep.id} value={rep.email}>
+                        {rep.full_name ? `${rep.full_name} (${rep.email})` : rep.email}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleSaveOwner}
+                    disabled={ownerSaving}
+                    className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {ownerSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="email"
+                      value={ownerEmailInput}
+                      onChange={(e) => setOwnerEmailInput(e.target.value)}
+                      placeholder="rep@yourcompany.com"
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    />
+                    <button
+                      onClick={handleSaveOwner}
+                      disabled={ownerSaving}
+                      className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {ownerSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    No reps configured.{' '}
+                    <a href="/admin/rep-contacts" className="text-blue-600 hover:underline">Add reps →</a>
+                  </p>
+                </div>
+              )}
+              {ownerSuccess && (
+                <p className="text-xs text-green-600 mt-2">{ownerSuccess}</p>
+              )}
+            </div>
+
+            {/* Pipeline Stage Manager */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Pipeline Stage</h2>
+
+              {/* Visual pipeline */}
+              <div className="flex items-center gap-1 mb-6 overflow-x-auto pb-2">
+                {STAGES.map((s, i) => {
+                  const currentIdx = STAGES.indexOf((lead.stage || 'new') as typeof STAGES[number]);
+                  const isActive = i <= currentIdx;
+                  const isCurrent = s === (lead.stage || 'new');
+                  return (
+                    <div key={s} className="flex items-center">
+                      <div className={`px-3 py-1.5 rounded text-xs font-medium capitalize whitespace-nowrap ${
+                        isCurrent
+                          ? STAGE_COLORS[s]
+                          : isActive
+                          ? 'bg-gray-200 text-gray-700'
+                          : 'bg-gray-50 text-gray-400'
+                      }`}>
+                        {s}
+                      </div>
+                      {i < STAGES.length - 1 && (
+                        <div className={`w-4 h-px mx-0.5 ${isActive ? 'bg-gray-400' : 'bg-gray-200'}`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Stage</label>
+                  <select
+                    value={selectedStage}
+                    onChange={(e) => setSelectedStage(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  >
+                    {STAGES.map((s) => (
+                      <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedStage === 'won' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Deal Amount ($) *</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={dealAmount}
+                      onChange={(e) => setDealAmount(e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="e.g. 8400"
+                    />
+                  </div>
+                )}
+
+                {(selectedStage === 'won' || selectedStage === 'lost') && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Outcome Reason *</label>
+                      <input
+                        type="text"
+                        value={outcomeReason}
+                        onChange={(e) => setOutcomeReason(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder={selectedStage === 'won' ? 'e.g. Signed contract' : 'e.g. Went with competitor'}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Outcome Note</label>
+                      <input
+                        type="text"
+                        value={outcomeNote}
+                        onChange={(e) => setOutcomeNote(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder="Optional details..."
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <button
+                    onClick={handleStageSave}
+                    disabled={stageSaving}
+                    className="bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {stageSaving ? 'Saving...' : 'Save Stage'}
+                  </button>
+                </div>
+              </div>
+
+              {stageError && (
+                <div className="mt-3 text-sm text-red-600">{stageError}</div>
+              )}
+              {stageSuccess && (
+                <div className="mt-3 text-sm text-green-600">{stageSuccess}</div>
+              )}
+
+              {lead.deal_amount != null && (
+                <div className="mt-4 pt-4 border-t text-sm text-gray-600">
+                  Deal Value: <span className="font-semibold text-gray-900">${lead.deal_amount.toLocaleString()}</span>
+                  {lead.stage_updated_at && (
+                    <span className="ml-4 text-xs text-gray-400">
+                      Updated: {new Date(lead.stage_updated_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Stage History */}
+            {stageHistory.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Stage History</h2>
+                <div className="space-y-2">
+                  {stageHistory.map((h) => (
+                    <div key={h.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        {h.from_stage && (
+                          <>
+                            <StageBadge stage={h.from_stage} />
+                            <span className="text-gray-400 text-xs">&rarr;</span>
+                          </>
+                        )}
+                        <StageBadge stage={h.to_stage} />
+                        {h.reason && (
+                          <span className="text-xs text-gray-500 ml-2">{h.reason}</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {new Date(h.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Intelligence Signals */}
+            {intelligence && lead.stage !== 'won' && lead.stage !== 'lost' && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Intelligence</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-500">Close Probability</div>
+                    <div className={`text-2xl font-bold ${
+                      intelligence.close_probability >= 60 ? 'text-green-700' :
+                      intelligence.close_probability >= 30 ? 'text-yellow-600' :
+                      'text-red-600'
+                    }`}>
+                      {intelligence.close_probability}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Days in Stage</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {intelligence.days_in_stage !== null ? `${intelligence.days_in_stage}d` : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Status</div>
+                    <div className={`text-sm font-medium mt-1 ${intelligence.is_stale ? 'text-yellow-600' : 'text-green-600'}`}>
+                      {intelligence.is_stale ? 'Stale' : 'Active'}
+                    </div>
+                  </div>
+                  {intelligence.stage_leak_warning && intelligence.stage_leak_message && (
+                    <div className="col-span-2 sm:col-span-1">
+                      <div className="text-sm text-gray-500">Warning</div>
+                      <div className="text-xs text-red-600 mt-1">{intelligence.stage_leak_message}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* AI Conversion Assist */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">AI Conversion Assist</h2>
+                <div className="flex items-center gap-2">
+                  {assist?.mode === 'stub' && (
+                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">
+                      Safe Mode
+                    </span>
+                  )}
+                  <button
+                    onClick={handleGenerateAssist}
+                    disabled={assistLoading}
+                    className="bg-purple-600 text-white py-1.5 px-4 rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {assistLoading ? 'Generating...' : assist ? 'Regenerate' : 'Generate Assist'}
+                  </button>
+                </div>
+              </div>
+
+              {assistError && (
+                <div className="text-sm text-red-600 mb-3">{assistError}</div>
+              )}
+
+              {assistLoading && (
+                <div className="text-center text-gray-400 py-6">Generating personalized scripts...</div>
+              )}
+
+              {assist && !assistLoading && (
+                <div className="space-y-5">
+                  {/* Next Action */}
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Next Best Action</div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-900">
+                      {assist.data.next_action}
+                    </div>
+                  </div>
+
+                  {/* SMS Script */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">SMS Script</div>
+                      <button
+                        onClick={() => copyToClipboard(assist.data.sms_script, 'sms')}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        {copied === 'sms' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="bg-gray-50 border rounded-lg p-3 text-sm text-gray-800 font-mono whitespace-pre-wrap">
+                      {assist.data.sms_script}
+                    </div>
+                  </div>
+
+                  {/* Email Script */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Email Script</div>
+                      <button
+                        onClick={() => copyToClipboard(assist.data.email_script, 'email')}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        {copied === 'email' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="bg-gray-50 border rounded-lg p-3 text-sm text-gray-800 whitespace-pre-wrap">
+                      {assist.data.email_script}
+                    </div>
+                  </div>
+
+                  {/* Call Talking Points */}
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Call Talking Points</div>
+                    <ul className="bg-gray-50 border rounded-lg p-3 space-y-1.5">
+                      {assist.data.call_talking_points.map((point, i) => (
+                        <li key={i} className="text-sm text-gray-800 flex gap-2">
+                          <span className="text-gray-400 shrink-0">{i + 1}.</span>
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {!assist && !assistLoading && !assistError && (
+                <p className="text-sm text-gray-400">Click &quot;Generate Assist&quot; to get AI-powered next actions, SMS/email scripts, and call talking points for this lead.</p>
+              )}
+            </div>
+
+            {/* AI Insights */}
+            {(lead.ai_score != null || lead.ai_summary || (lead.tags && lead.tags.length > 0)) && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Insights</h2>
+                <div className="space-y-4">
+                  {lead.ai_score != null && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-gray-500">AI Score:</span>
+                      <AiScoreBadge score={lead.ai_score} />
+                    </div>
+                  )}
+                  {lead.ai_summary && (
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">AI Summary:</span>
+                      <p className="text-sm text-gray-900 mt-1">{lead.ai_summary}</p>
+                    </div>
+                  )}
+                  {lead.tags && lead.tags.length > 0 && (
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Tags:</span>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {lead.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Contact Status */}
+            {(lead.email_status || lead.sms_status || lead.call_status || lead.contact_status || lead.last_contacted_at) && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Contact Status</h2>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {lead.email_status && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">Email Status</dt>
+                      <dd className="mt-1"><StatusBadge status={lead.email_status} /></dd>
+                    </div>
+                  )}
+                  {lead.sms_status && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">SMS Status</dt>
+                      <dd className="mt-1"><StatusBadge status={lead.sms_status} /></dd>
+                    </div>
+                  )}
+                  {lead.call_status && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">Call Status</dt>
+                      <dd className="mt-1"><StatusBadge status={lead.call_status} /></dd>
+                    </div>
+                  )}
+                  {lead.call_attempts != null && lead.call_attempts > 0 && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">Call Attempts</dt>
+                      <dd className="text-sm text-gray-900 mt-1">{lead.call_attempts}</dd>
+                    </div>
+                  )}
+                  {lead.contact_status && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">Contact Status</dt>
+                      <dd className="mt-1"><StatusBadge status={lead.contact_status} /></dd>
+                    </div>
+                  )}
+                  {lead.last_contacted_at && (
+                    <div className="border-b pb-3">
+                      <dt className="text-sm font-medium text-gray-500">Last Contacted</dt>
+                      <dd className="text-sm text-gray-900 mt-1">{formatDate(lead.last_contacted_at)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+
+            {/* SMS Sequences */}
+            {sequences.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">SMS Sequence</h2>
+                <div className="space-y-2">
+                  {sequences.map((seq) => (
+                    <div key={seq.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-gray-500">Step {seq.step}</span>
+                        <span className="text-sm text-gray-700 truncate max-w-md">{seq.message || '-'}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          seq.status === 'sent' ? 'bg-green-100 text-green-800' :
+                          seq.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                          seq.status === 'failed' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {seq.status}
+                        </span>
+                        {seq.sent_at && (
+                          <span className="text-xs text-gray-500">
+                            {new Date(seq.sent_at).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Automation Timeline */}
+            {events.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Automation Timeline</h2>
+                <div className="relative">
+                  <div className="absolute left-3 top-0 bottom-0 w-px bg-gray-200" />
+                  <div className="space-y-4">
+                    {events.map((ev, i) => (
+                      <TimelineEntry key={i} event={ev} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Engagement Timeline */}
+            {engagement && (engagement.plan || engagement.steps.length > 0 || engagement.events.length > 0 || engagement.inbound_messages.length > 0) && (
+              <div className="bg-white rounded-lg shadow-sm border p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Engagement Timeline</h2>
+
+                {/* Plan status */}
+                {engagement.plan && (
+                  <div className="flex items-center gap-3 mb-5 pb-4 border-b">
+                    <span className="text-sm text-gray-500">Plan status:</span>
+                    <EngagementStatusBadge status={engagement.plan.status} />
+                    <span className="text-sm text-gray-500">Step {engagement.plan.current_step} of {engagement.steps.length}</span>
+                    {engagement.plan.paused && (
+                      <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">Paused</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Scheduled steps */}
+                {engagement.steps.length > 0 && (
+                  <div className="mb-5">
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Scheduled Steps</h3>
+                    <div className="space-y-2">
+                      {engagement.steps.map((step) => (
+                        <EngagementStepRow key={step.id} step={step} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Engagement events */}
+                {engagement.events.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Events</h3>
+                    <div className="space-y-2">
+                      {engagement.events.map((ev) => (
+                        <div key={ev.id} className="flex items-start justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <ChannelBadge channel={ev.channel} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-800">
+                                  {getEventLabel(ev.event_type)}
+                                </span>
+                                <span className="text-xs text-gray-400 capitalize">{ev.direction}</span>
+                              </div>
+                              {ev.content && (
+                                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-sm">{ev.content}</p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-400 whitespace-nowrap ml-4">
+                            {new Date(ev.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inbound replies */}
+                {engagement.inbound_messages.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Lead Replies</h3>
+                    <div className="space-y-3">
+                      {engagement.inbound_messages.map((msg) => (
+                        <InboundMessageCard key={msg.id} message={msg} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Answers */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Answers</h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.entries(lead.answers_json).map(([key, value]) => (
+                  <div key={key} className="border-b pb-3">
+                    <dt className="text-sm font-medium text-gray-500 capitalize">
+                      {key.replace(/_/g, ' ')}
+                    </dt>
+                    <dd className="text-sm text-gray-900 mt-1">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {/* Meta Info */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Meta</h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="border-b pb-3">
+                  <dt className="text-sm font-medium text-gray-500">Lead ID</dt>
+                  <dd className="text-sm text-gray-900 mt-1 font-mono">{lead.id}</dd>
+                </div>
+                <div className="border-b pb-3">
+                  <dt className="text-sm font-medium text-gray-500">Language</dt>
+                  <dd className="text-sm text-gray-900 mt-1 uppercase">{lead.language}</dd>
+                </div>
+                <div className="border-b pb-3">
+                  <dt className="text-sm font-medium text-gray-500">Score</dt>
+                  <dd className="text-sm text-gray-900 mt-1">
+                    {lead.score !== null ? lead.score : 'Not scored'}
+                  </dd>
+                </div>
+                <div className="border-b pb-3">
+                  <dt className="text-sm font-medium text-gray-500">Funnel ID</dt>
+                  <dd className="text-sm text-gray-900 mt-1 font-mono">{lead.funnel_id}</dd>
+                </div>
+              </dl>
+            </div>
+
+            {/* Source Data */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Source / Attribution</h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {lead.source_json.utm_source && (
+                  <div className="border-b pb-3">
+                    <dt className="text-sm font-medium text-gray-500">UTM Source</dt>
+                    <dd className="text-sm text-gray-900 mt-1">{lead.source_json.utm_source}</dd>
+                  </div>
+                )}
+                {lead.source_json.utm_medium && (
+                  <div className="border-b pb-3">
+                    <dt className="text-sm font-medium text-gray-500">UTM Medium</dt>
+                    <dd className="text-sm text-gray-900 mt-1">{lead.source_json.utm_medium}</dd>
+                  </div>
+                )}
+                {lead.source_json.utm_campaign && (
+                  <div className="border-b pb-3">
+                    <dt className="text-sm font-medium text-gray-500">UTM Campaign</dt>
+                    <dd className="text-sm text-gray-900 mt-1">{lead.source_json.utm_campaign}</dd>
+                  </div>
+                )}
+                {lead.source_json.referrer && (
+                  <div className="border-b pb-3">
+                    <dt className="text-sm font-medium text-gray-500">Referrer</dt>
+                    <dd className="text-sm text-gray-900 mt-1 break-all">{lead.source_json.referrer}</dd>
+                  </div>
+                )}
+                {lead.source_json.landing_url && (
+                  <div className="border-b pb-3 sm:col-span-2">
+                    <dt className="text-sm font-medium text-gray-500">Landing URL</dt>
+                    <dd className="text-sm text-gray-900 mt-1 break-all">{lead.source_json.landing_url}</dd>
+                  </div>
+                )}
+                {!lead.source_json.utm_source &&
+                  !lead.source_json.utm_medium &&
+                  !lead.source_json.utm_campaign &&
+                  !lead.source_json.referrer &&
+                  !lead.source_json.landing_url && (
+                  <div className="sm:col-span-2">
+                    <p className="text-sm text-gray-500 italic">No source data available</p>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </div>
+        )}
+      </div>
+    </AdminLayout>
+  );
+}
+
+function EngagementStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active:                  'bg-green-100 text-green-800',
+    pending:                 'bg-yellow-100 text-yellow-800',
+    sent:                    'bg-green-100 text-green-800',
+    skipped_missing_config:  'bg-orange-100 text-orange-800',
+    failed:                  'bg-red-100 text-red-800',
+    completed:               'bg-blue-100 text-blue-800',
+    cancelled:               'bg-gray-200 text-gray-500 line-through',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function ChannelBadge({ channel }: { channel: string }) {
+  const colors: Record<string, string> = {
+    sms:    'bg-blue-100 text-blue-700',
+    email:  'bg-purple-100 text-purple-700',
+    call:   'bg-teal-100 text-teal-700',
+    system: 'bg-gray-100 text-gray-600',
+  };
+  return (
+    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full uppercase ${colors[channel] || 'bg-gray-100 text-gray-600'}`}>
+      {channel}
+    </span>
+  );
+}
+
+function EngagementStepRow({ step }: { step: import('@/types/admin').EngagementStep }) {
+  const [showPreview, setShowPreview] = useState(false);
+  const content = step.generated_content_json as Record<string, string> | null;
+  const hasPreview = content && (content.sms_body || content.email_subject);
+
+  return (
+    <div className="bg-gray-50 rounded-lg p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-gray-400 w-8">#{step.step_order}</span>
+          <ChannelBadge channel={step.channel} />
+          <span className="text-xs text-gray-500">
+            {new Date(step.scheduled_for).toLocaleString()}
+          </span>
+          {step.executed_at && (
+            <span className="text-xs text-gray-400">
+              executed {new Date(step.executed_at).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasPreview && (
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              {showPreview ? 'Hide' : 'Preview'}
+            </button>
+          )}
+          <EngagementStatusBadge status={step.status} />
+        </div>
+      </div>
+      {showPreview && hasPreview && (
+        <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+          {content?.sms_body && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">SMS</span>
+              <p className="text-xs text-gray-700 mt-0.5 bg-white rounded p-2 border">{content.sms_body}</p>
+            </div>
+          )}
+          {content?.email_subject && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">Subject</span>
+              <p className="text-xs text-gray-700 mt-0.5 font-medium">{content.email_subject}</p>
+            </div>
+          )}
+          {content?.email_body && (
+            <div>
+              <span className="text-xs font-semibold text-gray-400 uppercase">Body</span>
+              <p className="text-xs text-gray-600 mt-0.5 bg-white rounded p-2 border whitespace-pre-wrap line-clamp-4">{content.email_body}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Human-readable labels for engagement event types */
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  // Outbound delivery
+  sms_sent:               '📱 SMS Sent',
+  email_sent:             '✉️ Email Sent',
+  sms_skipped_missing_config: '⚠️ SMS Skipped (no config)',
+  email_skipped_missing_config: '⚠️ Email Skipped (no config)',
+  sms_failed:             '❌ SMS Failed',
+  email_failed:           '❌ Email Failed',
+  // Inbound / auto-reply
+  sms_reply:              '💬 Lead Replied (SMS)',
+  sms_auto_reply_sent:    '🤖 Auto-Reply Sent',
+  // Handoff
+  rep_notified:           '🔔 Rep Notified',
+  human_needed:           '🙋 Human Needed',
+  // Plan lifecycle
+  plan_created:           '📋 Engagement Plan Created',
+  plan_paused:            '⏸️ Plan Paused',
+  plan_cancelled:         '🚫 Plan Cancelled',
+  cancelled:              '🚫 Cancelled',
+  // Branching
+  branching_applied:      '🔀 Branching Applied',
+  rescheduled:            '📅 Rescheduled',
+};
+
+function getEventLabel(eventType: string): string {
+  return EVENT_TYPE_LABELS[eventType] ?? eventType.replace(/_/g, ' ');
+}
+
+function TimelineEntry({ event }: { event: AutomationEvent }) {
+  const [open, setOpen] = useState(false);
+
+  const statusColor: Record<string, string> = {
+    success: 'bg-green-100 text-green-800',
+    sent: 'bg-green-100 text-green-800',
+    failed: 'bg-red-100 text-red-800',
+    skipped_missing_config: 'bg-yellow-100 text-yellow-800',
+  };
+
+  const dotColor: Record<string, string> = {
+    success: 'bg-green-500',
+    sent: 'bg-green-500',
+    failed: 'bg-red-500',
+    skipped_missing_config: 'bg-yellow-500',
+  };
+
+  const label = getEventLabel(event.event_type);
+  const ts = new Date(event.created_at).toLocaleString();
+
+  return (
+    <div className="relative pl-8">
+      <div className={`absolute left-1.5 top-1.5 w-3 h-3 rounded-full ${dotColor[event.status] ?? 'bg-gray-400'}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-900 capitalize">{label}</span>
+            <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${statusColor[event.status] ?? 'bg-gray-100 text-gray-700'}`}>
+              {event.status}
+            </span>
+          </div>
+          <span className="text-xs text-gray-400">{ts}</span>
+        </div>
+        {event.detail_json && (
+          <button
+            onClick={() => setOpen(!open)}
+            className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+          >
+            {open ? 'Hide' : 'Details'}
+          </button>
+        )}
+      </div>
+      {open && event.detail_json && (
+        <pre className="mt-1 text-xs bg-gray-50 rounded p-2 overflow-x-auto text-gray-600">
+          {JSON.stringify(event.detail_json, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+const CLASSIFICATION_COLORS: Record<string, string> = {
+  interested:     'bg-green-100 text-green-800',
+  price:          'bg-orange-100 text-orange-800',
+  timing:         'bg-blue-100 text-blue-800',
+  info:           'bg-purple-100 text-purple-800',
+  not_interested: 'bg-red-100 text-red-800',
+  human_needed:   'bg-yellow-100 text-yellow-800',
+  unknown:        'bg-gray-100 text-gray-600',
+};
+
+function InboundMessageCard({ message }: { message: InboundMessage }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (!message.suggested_response) return;
+    navigator.clipboard.writeText(message.suggested_response).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const classificationLabel = message.classification
+    ? message.classification.replace(/_/g, ' ')
+    : 'unknown';
+
+  return (
+    <div className="border border-blue-200 bg-blue-50 rounded-lg p-4">
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700 uppercase">
+            SMS Reply
+          </span>
+          {message.classification && (
+            <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full capitalize ${CLASSIFICATION_COLORS[message.classification] || 'bg-gray-100 text-gray-600'}`}>
+              {classificationLabel}
+            </span>
+          )}
+        </div>
+        <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
+          {new Date(message.created_at).toLocaleString()}
+        </span>
+      </div>
+
+      <p className="text-sm text-gray-800 mb-3 italic">&ldquo;{message.message_body}&rdquo;</p>
+
+      {message.suggested_response && (
+        <div className="bg-white border border-blue-100 rounded p-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Suggested Response</span>
+            <button
+              onClick={handleCopy}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              {copied ? 'Copied!' : 'Copy Response'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-700">{message.suggested_response}</p>
+        </div>
+      )}
+    </div>
+  );
+}

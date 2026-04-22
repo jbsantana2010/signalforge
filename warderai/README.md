@@ -1,0 +1,213 @@
+# SignalForge
+
+**White-Label Revenue Acceleration Platform**
+
+AI-powered lead response and follow-up system built for agencies and high-ticket businesses. Captures leads, scores them with AI, and connects sales teams within 60 seconds via automated calls, SMS, and email.
+
+## Core Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| **60-Second Response Engine** | Automated call bridge, SMS, and email fire the moment a lead submits |
+| **AI Lead Scoring** | Claude-powered 0-100 scoring with natural language summaries (deterministic fallback) |
+| **SMS Sequences** | Multi-step scheduled follow-ups (Day 0, Day 1, Day 3 drip campaigns) |
+| **Call Bridge** | Twilio-powered rep-to-lead phone connection with working hours enforcement |
+| **Multi-Org White Label** | Agency manages multiple client orgs with isolated data, branding, and funnels |
+| **AI Campaign Strategy** | One-click AI-generated ad strategy: angles, hooks, offers, targeting, and complete ad variations |
+| **Campaign Attribution** | Track ad campaigns via UTM parameters with leads, avg AI score, estimated revenue, CPL, and ROAS |
+| **Pipeline & Real Revenue** | Lead stages (new → won/lost), deal values, actual revenue, actual ROAS, pipeline value tracking |
+| **Conversion Assist** | AI-generated next best action, SMS/email scripts, and call talking points per lead stage |
+| **Revenue Intelligence** | Dashboard with KPIs, AI lead distribution, estimated and actual revenue projections |
+| **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
+| **Client Onboarding** | One-click org + funnel provisioning from agency admin UI with industry template selection |
+| **Intelligent Routing** | Rule-based tag and priority assignment from lead answers |
+| **Engagement Engine V1.1** | 4-step follow-up plans (SMS+email) auto-created per lead; APScheduler runs worker every 60s automatically; message preview in lead timeline |
+| **Auto-Reply Engine** | Inbound SMS classified; suggested reply auto-sent for interested/price/info/timing intent; sms_auto_reply_sent event logged |
+| **Bridge Call** | Twilio rep-to-lead phone bridge; pool crash fixed (V5); rep-answer → rep-gather → dial flow functional |
+| **Ops Readiness** | Health endpoint, status page, manual engagement worker trigger, handoff queue, rep contacts CRUD |
+
+## Architecture
+
+```
+Industry (template: funnel schema, sequences, scoring, revenue defaults)
+ ↓
+Agency
+ └── Org (white-label branding, revenue settings, industry profile)
+      └── Funnel (form schema, routing rules, automation config)
+           └── Lead (answers, AI score, contact status, sequences)
+```
+
+```
+ Next.js 14 (App Router)                FastAPI (async)
+ ┌──────────────────────┐               ┌──────────────────────┐
+ │  Dashboard           │    REST/JWT   │  Admin API           │
+ │  Lead Management     │◄────────────►│  Public API          │
+ │  Funnel Settings     │               │  Automation Engine   │
+ │  Onboarding          │               │  Analytics Service   │
+ │  Ops Status          │               │  Health Check        │
+ └──────────────────────┘               └──────┬───────────────┘
+                                               │
+                            ┌──────────────────┼──────────────────┐
+                            │                  │                  │
+                       PostgreSQL         Twilio API         Claude API
+                       (asyncpg)         (Voice + SMS)      (AI scoring)
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Backend | Python 3.11+, FastAPI, Pydantic v2 |
+| Database | PostgreSQL 16, asyncpg |
+| Auth | JWT (HS256), bcrypt |
+| Voice/SMS | Twilio Programmable Voice + Messaging |
+| AI | Anthropic Claude API (optional) |
+| Email | SMTP (any provider) |
+
+## Multi-Tenant Model
+
+```
+Agency (WaveLaunch Marketing)
+ ├── Org: SolarPrime Inc     → Funnel: solar-prime     → Leads (isolated)
+ ├── Org: Acme Roofing       → Funnel: acme-leads      → Leads (isolated)
+ └── Org: ...
+```
+
+- Each org has its own branding (logo, color, display name)
+- JWT contains `agency_id` — enables org switching via `X-ORG-ID` header
+- All queries scoped by `org_id` — zero data leakage between orgs
+
+## Revenue Model
+
+```
+Estimated Revenue = Total Leads x (Close Rate % / 100) x Avg Deal Value
+Actual Revenue    = SUM(deal_amount) WHERE stage = 'won'
+Pipeline Value    = SUM(deal_amount) WHERE stage IN ('qualified', 'appointment')
+Actual ROAS       = Actual Revenue / Ad Spend
+```
+
+Estimated revenue is configurable per org. Actual revenue is tracked via lead pipeline stages (new → contacted → qualified → appointment → won/lost). When a lead is marked "won", a deal amount is required. Dashboard displays both estimated and actual metrics side by side.
+
+## Local Development
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 16+ (or Docker)
+
+### 1. Database
+
+```bash
+docker compose up -d
+```
+
+### 2. Backend
+
+```bash
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python seed.py          # migrations + demo data
+uvicorn app.main:app --reload --port 8000
+```
+
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 4. Verify
+
+- Health check: http://localhost:8000/health
+- Public funnel: http://localhost:3000/f/solar-prime
+- Admin login: http://localhost:3000/admin/login (`admin@solarprime.com` / `admin123`)
+- Dashboard: http://localhost:3000/admin/dashboard
+- Ops status: http://localhost:3000/admin/ops
+- API docs: http://localhost:8000/docs
+
+## Environment Variables
+
+### Backend (`backend/.env`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | `postgresql+asyncpg://...` | Postgres connection |
+| `JWT_SECRET` | Yes | `dev-secret-change-me` | JWT signing secret |
+| `CORS_ORIGINS` | Yes | `http://localhost:3000` | Allowed origins |
+| `CLAUDE_API_KEY` | No | — | AI lead scoring |
+| `SMTP_HOST` | No | — | Email notifications |
+| `SMTP_PORT` | No | `587` | SMTP port |
+| `SMTP_USER` | No | — | SMTP username |
+| `SMTP_PASS` | No | — | SMTP password |
+| `SMTP_FROM` | No | — | Sender address |
+| `TWILIO_ACCOUNT_SID` | No | — | SMS + voice |
+| `TWILIO_AUTH_TOKEN` | No | — | Twilio auth |
+| `TWILIO_WEBHOOK_SECRET` | No | `dev-webhook-secret` | Webhook validation |
+| `BASE_URL` | No | `http://localhost:8000` | Public URL for callbacks |
+
+### Frontend (`frontend/.env.local`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:8000` | Backend API URL |
+
+All external integrations (Twilio, SMTP, Claude) gracefully degrade when not configured.
+
+## API Overview
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/health` | No | System readiness with service status |
+| `GET` | `/public/funnels/{slug}` | No | Fetch funnel schema |
+| `POST` | `/public/leads/submit` | No | Submit a lead |
+| `POST` | `/admin/auth/login` | No | Admin login |
+| `GET` | `/admin/dashboard` | JWT | Revenue intelligence metrics |
+| `GET` | `/admin/leads` | JWT | List leads (paginated) |
+| `GET` | `/admin/leads/{id}` | JWT | Lead detail |
+| `PATCH` | `/admin/leads/{id}/stage` | JWT | Update lead pipeline stage |
+| `POST` | `/admin/leads/{id}/assist` | JWT | AI conversion assist (scripts + next action) |
+| `GET` | `/admin/funnels` | JWT | List funnels |
+| `GET`/`PATCH` | `/admin/funnels/{id}` | JWT | Funnel detail / settings |
+| `POST` | `/admin/ai/ad-strategy` | JWT | Generate AI campaign strategy |
+| `GET` | `/admin/campaigns` | JWT | List campaigns with attribution metrics |
+| `POST` | `/admin/campaigns` | JWT | Create campaign |
+| `PATCH` | `/admin/campaigns/{id}` | JWT | Update campaign ad spend |
+| `GET` | `/admin/industries` | JWT | List industry profiles |
+| `GET` | `/admin/industries/{slug}/template` | JWT | Preview industry template |
+| `GET` | `/admin/agency/orgs` | JWT | List agency orgs |
+| `POST` | `/admin/agency/orgs` | JWT | Create client org (with optional `industry_slug`) |
+| `POST` | `/admin/agency/orgs/{id}/funnels` | JWT | Create funnel for org |
+| `PATCH` | `/admin/org/settings` | JWT | Update revenue settings |
+
+Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PILOT.md)
+
+## Roadmap
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| Core Platform | Lead capture, AI scoring, automation engine | Done |
+| White Label | Agency layer, org switcher, branding, onboarding | Done |
+| Revenue Intelligence | Dashboard, KPIs, estimated revenue | Done |
+| AI Campaign Strategy | One-click ad strategy generation with Claude | Done |
+| Campaign Attribution | UTM-based campaign tracking with ROAS | Done |
+| Pipeline & Revenue | Lead stages, deal values, actual revenue, actual ROAS | Done |
+| Conversion Assist | AI next-action, SMS/email scripts, call talking points | Done |
+| Industry Templates | Vertical-specific profiles for onboarding | Done |
+| Pilot Ops | Health checks, status page, deployment runbook | Done |
+| Stripe Billing | Per-org subscription management | Planned |
+| **Engagement Engine V1** | Automated follow-up plans: SMS + email delivery pipeline, step scheduler, event logging, per-lead Engagement Timeline UI | Done |
+| **Inbound Reply Intelligence V2** | Inbound SMS webhook, keyword-based objection classification, suggested responses, escalation to human, timeline visibility | Done |
+| **Branching + Human Handoff V2.1** | Reply-driven branching rules, step cancellation, lead handoff state, handoff queue, cancelled step UI | Done |
+| **Rep Notification + Handoff Resolution V3** | Lead ownership (owner_email), rep_notified event on handoff, resolve-handoff endpoint, plan resume, ops queue inline resolve | Done |
+| **Close the Loop + Call Fix V5** | APScheduler (60s engagement worker), auto-send suggested replies for positive/neutral intent, deprecated legacy sequence system, fixed Twilio bridge call pool crash, rep assignment dropdown, labeled engagement timeline | Done |
+| AI Voice Agent | Conversational AI for inbound/outbound calls | Planned |
+| Advanced Analytics | Conversion funnels, rep performance, cohort analysis | Planned |
+
+## License
+
+Proprietary. All rights reserved.
