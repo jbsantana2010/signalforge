@@ -21,8 +21,10 @@ AI-powered lead response and follow-up system built for agencies and high-ticket
 | **Industry Profiles** | Vertical-specific templates (marine dealer, equipment dealer, generic) pre-configure funnels, sequences, scoring, and revenue defaults |
 | **Client Onboarding** | One-click org + funnel provisioning from agency admin UI with industry template selection |
 | **Intelligent Routing** | Rule-based tag and priority assignment from lead answers |
-| **Engagement Engine V1.1** | 4-step follow-up plans (SMS+email) auto-created per lead; manual worker trigger via Ops page; message preview in lead timeline |
-| **Ops Readiness** | Health endpoint, status page, and manual engagement worker trigger for deployment verification |
+| **Engagement Engine V1.1** | 4-step follow-up plans (SMS+email) auto-created per lead; APScheduler runs worker every 60s automatically; message preview in lead timeline |
+| **Auto-Reply Engine** | Inbound SMS classified; suggested reply auto-sent for interested/price/info/timing intent; sms_auto_reply_sent event logged |
+| **Bridge Call** | Twilio rep-to-lead phone bridge; pool crash fixed (V5); rep-answer → rep-gather → dial flow functional |
+| **Ops Readiness** | Health endpoint, status page, manual engagement worker trigger, handoff queue, rep contacts CRUD |
 
 ## Architecture
 
@@ -202,6 +204,7 @@ Full reference: [`API.md`](API.md) | Pilot ops: [`RUNBOOK_PILOT.md`](RUNBOOK_PIL
 | **Inbound Reply Intelligence V2** | Inbound SMS webhook, keyword-based objection classification, suggested responses, escalation to human, timeline visibility | Done |
 | **Branching + Human Handoff V2.1** | Reply-driven branching rules, step cancellation, lead handoff state, handoff queue, cancelled step UI | Done |
 | **Rep Notification + Handoff Resolution V3** | Lead ownership (owner_email), rep_notified event on handoff, resolve-handoff endpoint, plan resume, ops queue inline resolve | Done |
+| **Close the Loop + Call Fix V5** | APScheduler (60s engagement worker), auto-send suggested replies for positive/neutral intent, deprecated legacy sequence system, fixed Twilio bridge call pool crash, rep assignment dropdown, labeled engagement timeline | Done |
 | AI Voice Agent | Conversational AI for inbound/outbound calls | Planned |
 | Advanced Analytics | Conversion funnels, rep performance, cohort analysis | Planned |
 

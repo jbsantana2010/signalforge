@@ -208,3 +208,55 @@ The rep at `+1REAL_NUMBER` should receive an SMS.
 - No delivery confirmation beyond HTTP 2xx from Twilio
 - Rep phone must be in the `rep_contacts` table; per-funnel `rep_phone_number`
   is a separate field used only for lead acquisition, not handoff alerts
+
+---
+
+## Auto-Reply Notifications (V5)
+
+Warder now **automatically sends** the `suggested_response` back to the lead via SMS
+for positive/neutral reply classifications. This is separate from the handoff
+notification (which goes to the rep).
+
+### Classifications that trigger auto-reply
+
+| Classification | Auto-reply to lead? |
+|----------------|---------------------|
+| `interested`   | ✅ Yes              |
+| `price`        | ✅ Yes              |
+| `info`         | ✅ Yes              |
+| `timing`       | ✅ Yes              |
+| `not_interested` | ❌ No (plan paused, no reply) |
+| `human_needed` | ❌ No (escalated to rep)      |
+| `unknown`      | ❌ No (escalated to rep)      |
+
+### Auto-reply behavior
+
+- Message is the `suggested_response` from `reply_classifier.py` (deterministic)
+- Sent **from** the funnel's `twilio_from_number`
+- Sent **to** the lead's inbound phone number
+- On success: `sms_auto_reply_sent` event logged in `engagement_events`
+- On failure: warning logged, `auto_reply_sent: false` returned — no crash
+
+### Response field
+
+`POST /public/inbound/sms` now returns `auto_reply_sent: bool`:
+
+```json
+{
+  "status": "ok",
+  "classification": "price",
+  "suggested_response": "I understand cost is a concern...",
+  "auto_reply_sent": true
+}
+```
+
+### Auto-reply vs. handoff notification
+
+These are two separate flows:
+
+| | Auto-reply | Handoff notification |
+|---|---|---|
+| **Recipient** | Lead (their phone) | Rep (rep_contacts phone) |
+| **Trigger** | positive/neutral intent | human_needed / unknown |
+| **Channel** | SMS | Email + SMS |
+| **Config needed** | Twilio (funnel from number) | Twilio + SMTP + rep_contacts |

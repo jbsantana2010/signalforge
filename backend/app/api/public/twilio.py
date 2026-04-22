@@ -51,7 +51,8 @@ async def rep_gather(
     form = await request.form()
     digits = form.get("Digits", "")
 
-    pool = request.app.state.pool
+    import app.database as _db_mod
+    pool = _db_mod.pool
 
     if digits == "1":
         # Look up lead phone from DB
@@ -111,7 +112,8 @@ async def status_callback(
     verify_secret(secret)
 
     form = await request.form()
-    pool = request.app.state.pool
+    import app.database as _db_mod
+    pool = _db_mod.pool
 
     if type == "call":
         call_status = form.get("CallStatus", "unknown")

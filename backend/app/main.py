@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -59,7 +60,25 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error(f"Database connectivity check failed: {exc}")
     _log_env_summary(db_ok)
+
+    # Start persistent engagement scheduler (runs every 60 seconds)
+    async def _run_engagement_worker():
+        try:
+            from app.services.engagement_worker import process_due_engagement_steps
+            result = await process_due_engagement_steps(_db_mod.pool)
+            if result.get("processed", 0) > 0:
+                logger.info("Engagement worker: %s", result)
+        except Exception as exc:
+            logger.error("Engagement scheduler error: %s", exc)
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(_run_engagement_worker, "interval", seconds=60, id="engagement_worker")
+    scheduler.start()
+    logger.info("Engagement scheduler started (interval: 60s)")
+
     yield
+
+    scheduler.shutdown(wait=False)
     await close_pool()
 
 

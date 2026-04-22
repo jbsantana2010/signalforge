@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AdminLayout from '@/components/admin/AdminLayout';
 import { getToken } from '@/lib/auth';
-import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement, resolveHandoff, patchLead } from '@/lib/api';
-import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse, InboundMessage } from '@/types/admin';
+import { fetchLeadDetail, fetchLeadSequences, fetchLeadEvents, updateLeadStage, generateLeadAssist, fetchStageHistory, fetchLeadIntelligence, fetchLeadEngagement, resolveHandoff, patchLead, fetchRepContacts } from '@/lib/api';
+import { LeadDetail, LeadSequenceItem, StageHistoryItem, LeadIntelligence, LeadEngagementResponse, InboundMessage, RepContact } from '@/types/admin';
 
 interface AutomationEvent {
   event_type: string;
@@ -103,7 +103,8 @@ export default function LeadDetailPage() {
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
 
-  // Owner email
+  // Rep assignment
+  const [repContacts, setRepContacts] = useState<RepContact[]>([]);
   const [ownerEmailInput, setOwnerEmailInput] = useState('');
   const [ownerSaving, setOwnerSaving] = useState(false);
   const [ownerSuccess, setOwnerSuccess] = useState('');
@@ -125,6 +126,12 @@ export default function LeadDetailPage() {
         setSelectedStage(data.stage || 'new');
         setDealAmount(data.deal_amount ? String(data.deal_amount) : '');
         setOwnerEmailInput(data.owner_email ?? '');
+        try {
+          const reps = await fetchRepContacts(token);
+          setRepContacts(reps.contacts ?? []);
+        } catch {
+          // Rep contacts are optional — degrade gracefully
+        }
         try {
           const seqs = await fetchLeadSequences(token, params.id as string);
           setSequences(seqs);
@@ -386,22 +393,52 @@ export default function LeadDetailPage() {
             {/* Assigned Rep */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Assigned Rep</h2>
-              <div className="flex items-center gap-3">
-                <input
-                  type="email"
-                  value={ownerEmailInput}
-                  onChange={(e) => setOwnerEmailInput(e.target.value)}
-                  placeholder="rep@yourcompany.com"
-                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
-                />
-                <button
-                  onClick={handleSaveOwner}
-                  disabled={ownerSaving}
-                  className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
-                >
-                  {ownerSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
+              {repContacts.length > 0 ? (
+                <div className="flex items-center gap-3">
+                  <select
+                    value={ownerEmailInput}
+                    onChange={(e) => setOwnerEmailInput(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {repContacts.map((rep) => (
+                      <option key={rep.id} value={rep.email}>
+                        {rep.full_name ? `${rep.full_name} (${rep.email})` : rep.email}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleSaveOwner}
+                    disabled={ownerSaving}
+                    className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {ownerSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="email"
+                      value={ownerEmailInput}
+                      onChange={(e) => setOwnerEmailInput(e.target.value)}
+                      placeholder="rep@yourcompany.com"
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    />
+                    <button
+                      onClick={handleSaveOwner}
+                      disabled={ownerSaving}
+                      className="bg-gray-800 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {ownerSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    No reps configured.{' '}
+                    <a href="/admin/rep-contacts" className="text-blue-600 hover:underline">Add reps →</a>
+                  </p>
+                </div>
+              )}
               {ownerSuccess && (
                 <p className="text-xs text-green-600 mt-2">{ownerSuccess}</p>
               )}
@@ -843,8 +880,8 @@ export default function LeadDetailPage() {
                             <ChannelBadge channel={ev.channel} />
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-800 capitalize">
-                                  {ev.event_type.replace(/_/g, ' ')}
+                                <span className="text-sm font-medium text-gray-800">
+                                  {getEventLabel(ev.event_type)}
                                 </span>
                                 <span className="text-xs text-gray-400 capitalize">{ev.direction}</span>
                               </div>
@@ -1057,6 +1094,35 @@ function EngagementStepRow({ step }: { step: import('@/types/admin').EngagementS
   );
 }
 
+/** Human-readable labels for engagement event types */
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  // Outbound delivery
+  sms_sent:               '📱 SMS Sent',
+  email_sent:             '✉️ Email Sent',
+  sms_skipped_missing_config: '⚠️ SMS Skipped (no config)',
+  email_skipped_missing_config: '⚠️ Email Skipped (no config)',
+  sms_failed:             '❌ SMS Failed',
+  email_failed:           '❌ Email Failed',
+  // Inbound / auto-reply
+  sms_reply:              '💬 Lead Replied (SMS)',
+  sms_auto_reply_sent:    '🤖 Auto-Reply Sent',
+  // Handoff
+  rep_notified:           '🔔 Rep Notified',
+  human_needed:           '🙋 Human Needed',
+  // Plan lifecycle
+  plan_created:           '📋 Engagement Plan Created',
+  plan_paused:            '⏸️ Plan Paused',
+  plan_cancelled:         '🚫 Plan Cancelled',
+  cancelled:              '🚫 Cancelled',
+  // Branching
+  branching_applied:      '🔀 Branching Applied',
+  rescheduled:            '📅 Rescheduled',
+};
+
+function getEventLabel(eventType: string): string {
+  return EVENT_TYPE_LABELS[eventType] ?? eventType.replace(/_/g, ' ');
+}
+
 function TimelineEntry({ event }: { event: AutomationEvent }) {
   const [open, setOpen] = useState(false);
 
@@ -1074,7 +1140,7 @@ function TimelineEntry({ event }: { event: AutomationEvent }) {
     skipped_missing_config: 'bg-yellow-500',
   };
 
-  const label = event.event_type.replace(/_/g, ' ');
+  const label = getEventLabel(event.event_type);
   const ts = new Date(event.created_at).toLocaleString();
 
   return (

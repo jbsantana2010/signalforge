@@ -805,3 +805,146 @@ After resolve:
 - Resolving a plan only unpauses it; does not re-create cancelled steps
 - `owner_email` is free text — no validation, no user lookup
 - No role system — any admin can resolve any handoff in the org
+
+---
+
+## Sprint V5: Close the Loop + Call Fix
+
+### What Changed
+
+**1. Persistent Engagement Scheduler (APScheduler)**
+- `apscheduler>=3.10.0` added to `requirements.txt`
+- `AsyncIOScheduler` wired into the FastAPI `lifespan` context in `main.py`
+- `process_due_engagement_steps(pool)` runs automatically every **60 seconds** on startup
+- Scheduler shuts down cleanly on app exit
+- Log line on startup: `Engagement scheduler started (interval: 60s)`
+- Ops page note "Automatic cron scheduler is not yet enabled" is now historical
+
+**2. Auto-Send Suggested Replies**
+- `POST /public/inbound/sms` now auto-sends the `suggested_response` back to the lead via Twilio when classification is `interested`, `price`, `info`, or `timing`
+- Sends from the funnel's `twilio_from_number` — gracefully skips if Twilio is not configured
+- Logs an `sms_auto_reply_sent` engagement event on success
+- `not_interested`, `human_needed`, `unknown` still go to human review only
+
+**3. Old Sequence System Disabled**
+- Steps `g` (schedule_sequences) and `i` (process_due_sequences) in `automation_service.py` are commented out
+- Engagement engine is now the single source of truth for follow-up delivery
+- No duplicate messages between sequence_worker and engagement_worker
+
+**4. Twilio Bridge Call Pool Fix**
+- `rep-gather` and `status` endpoints in `twilio.py` previously used `request.app.state.pool` which was never set → runtime `AttributeError`
+- Fixed: both now use `import app.database as _db_mod; _db_mod.pool`
+- Bridge call flow (rep-answer → rep-gather → dial lead) is now functional when Twilio is configured
+
+**5. Rep Assignment Dropdown**
+- Lead detail page `/admin/leads/{id}` now loads rep contacts from `/admin/rep-contacts` on page load
+- "Assigned Rep" section shows a `<select>` dropdown with rep name + email when contacts exist
+- Falls back to plain email input + link to add reps when no rep contacts are configured
+- Dropdown preselects the current `owner_email` value
+
+**6. Timeline Visibility**
+- `getEventLabel()` helper maps raw event types to human-readable labels with emoji
+- Applied in both the Automation Events log and the Engagement Events section
+- Key labels: `sms_auto_reply_sent` → 🤖 Auto-Reply Sent, `rep_notified` → 🔔 Rep Notified, `cancelled` → 🚫 Cancelled, `sms_reply` → 💬 Lead Replied (SMS)
+
+---
+
+### Testing V5 Locally
+
+#### Test 1 — Scheduler boots automatically
+
+```bash
+uvicorn app.main:app --reload --port 8000
+# Look for in stdout:
+# INFO - Engagement scheduler started (interval: 60s)
+```
+
+Wait 60 seconds — check the logs for `Engagement worker:` output showing processed/sent/skipped counts. No manual trigger required.
+
+#### Test 2 — Auto-reply on inbound SMS
+
+```bash
+# Requires Twilio configured in .env
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "How much does it cost?"}'
+
+# Expected:
+# {"status": "ok", "classification": "price", "suggested_response": "...", "auto_reply_sent": true}
+```
+
+Then check the lead's Engagement Timeline — should show `💬 Lead Replied (SMS)` inbound event followed by `🤖 Auto-Reply Sent` outbound event.
+
+Without Twilio configured: `"auto_reply_sent": false` — no crash.
+
+#### Test 3 — Human-needed still goes to queue (no auto-reply)
+
+```bash
+curl -X POST http://localhost:8000/public/inbound/sms \
+  -H "Content-Type: application/json" \
+  -d '{"from_number": "+13105551234", "body": "I need to talk to someone"}'
+
+# Expected:
+# {"status": "ok", "classification": "human_needed", "auto_reply_sent": false}
+```
+
+Lead should appear in `/admin/ops` handoff queue. No SMS auto-reply is sent.
+
+#### Test 4 — Bridge call pool fix
+
+```bash
+# Simulate Twilio hitting rep-gather after rep presses 1
+curl -X POST "http://localhost:8000/public/twilio/rep-gather?lead_id=<uuid>&secret=dev-webhook-secret" \
+  -d "Digits=1"
+
+# Before fix: AttributeError: 'State' object has no attribute 'pool'
+# After fix: returns TwiML <Dial> response
+```
+
+#### Test 5 — Rep assignment dropdown
+
+1. Navigate to `/admin/rep-contacts` — add at least one rep with name and email
+2. Navigate to `/admin/leads/{id}` for any lead
+3. "Assigned Rep" section shows a dropdown pre-populated with reps
+4. Select a rep → click Save → verify success message
+5. Reload page → rep selection persists
+
+#### Test 6 — No rep contacts (graceful fallback)
+
+1. Delete all rep contacts via the rep contacts page
+2. Navigate to `/admin/leads/{id}`
+3. "Assigned Rep" section shows plain email input + "Add reps →" link
+
+#### Test 7 — Timeline labels
+
+1. Navigate to any lead that has engagement events
+2. Verify events show human-readable labels (🤖 Auto-Reply Sent, 💬 Lead Replied, etc.) instead of raw snake_case strings
+
+---
+
+### Branching Rules (Updated)
+
+| Classification | Auto-Reply? | Plan | Steps | Lead flags |
+|----------------|-------------|------|-------|------------|
+| `interested` | ✅ Yes | active | unchanged | none |
+| `price` | ✅ Yes | active | unchanged | none |
+| `info` | ✅ Yes | active | unchanged | none |
+| `timing` | ✅ Yes | active | next SMS +24h | none |
+| `not_interested` | ❌ No | paused | cancelled | none |
+| `human_needed` | ❌ No | paused | cancelled | `needs_human=true` |
+| `unknown` | ❌ No | paused | cancelled | `needs_human=true` |
+
+---
+
+### New Environment Variable
+
+No new env vars required. APScheduler runs in-process. Auto-reply uses existing `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`.
+
+---
+
+### Limitations (V5)
+
+- Call channel steps still marked `skipped_missing_config` — voice AI not yet implemented
+- Auto-reply sends `suggested_response` as-is (deterministic) — no Claude-generated replies yet
+- Scheduler interval is fixed at 60 seconds — not configurable via env
+- Cancelled steps are not re-created when a handoff is resolved

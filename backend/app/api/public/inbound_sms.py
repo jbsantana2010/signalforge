@@ -1,15 +1,17 @@
 """
 Inbound SMS webhook — receives lead replies, classifies them, logs events,
-and applies engagement branching rules.
+applies engagement branching rules, and auto-sends suggested replies for
+positive/neutral intent (interested, price, info, timing).
 
 POST /public/inbound/sms
-Human-in-the-loop: DOES NOT auto-send replies.
 """
 
 import json
 import logging
+import os
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -17,6 +19,9 @@ from app.database import get_db
 from app.services.reply_classifier import classify_reply
 from app.services.engagement_service import log_engagement_event
 from app.services.engagement_branching import apply_reply_branching
+
+# Classifications that trigger an automatic SMS reply to the lead
+AUTO_REPLY_CLASSIFICATIONS = {"interested", "price", "info", "timing"}
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +142,90 @@ async def inbound_sms(
         inbound_message_id=str(inbound_id),
     )
 
+    # Auto-send suggested reply for positive/neutral intent
+    auto_reply_sent = False
+    if classification in AUTO_REPLY_CLASSIFICATIONS and suggested_response:
+        auto_reply_sent = await _auto_send_sms_reply(
+            conn=conn,
+            lead_id=lead_id,
+            org_id=org_id,
+            to_number=from_number,
+            message_body=suggested_response,
+        )
+
     return {
         "status": "ok",
         "classification": classification,
         "suggested_response": suggested_response,
+        "auto_reply_sent": auto_reply_sent,
     }
+
+
+async def _auto_send_sms_reply(
+    conn: asyncpg.Connection,
+    lead_id: str,
+    org_id: str,
+    to_number: str,
+    message_body: str,
+) -> bool:
+    """
+    Send an automatic SMS reply to a lead using the funnel's Twilio from-number.
+    Fails gracefully — logs warning but never raises.
+    Returns True if the message was sent successfully.
+    """
+    try:
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+        auth_token  = os.getenv("TWILIO_AUTH_TOKEN", "")
+        if not account_sid or not auth_token:
+            logger.warning("Auto-reply skipped: Twilio credentials not configured (lead=%s)", lead_id)
+            return False
+
+        # Look up the funnel's twilio_from_number via the lead
+        row = await conn.fetchrow(
+            """
+            SELECT f.twilio_from_number
+            FROM leads l
+            JOIN funnels f ON f.id = l.funnel_id
+            WHERE l.id = $1
+            """,
+            lead_id,
+        )
+        from_number = row["twilio_from_number"] if row else None
+        if not from_number:
+            logger.warning("Auto-reply skipped: no twilio_from_number for lead %s", lead_id)
+            return False
+
+        # Normalise destination number
+        digits = "".join(c for c in to_number if c.isdigit())
+        if len(digits) == 10:
+            to_phone = f"+1{digits}"
+        elif len(digits) == 11 and digits.startswith("1"):
+            to_phone = f"+{digits}"
+        else:
+            to_phone = to_number if to_number.startswith("+") else f"+{digits}"
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
+                auth=(account_sid, auth_token),
+                data={"From": from_number, "To": to_phone, "Body": message_body},
+            )
+            resp.raise_for_status()
+
+        logger.info("Auto-reply sent to lead %s (%s)", lead_id, to_phone)
+
+        await log_engagement_event(
+            conn,
+            lead_id=lead_id,
+            org_id=org_id,
+            channel="sms",
+            event_type="sms_auto_reply_sent",
+            direction="outbound",
+            content=message_body,
+            metadata={"to_number": to_phone, "trigger": "auto_reply"},
+        )
+        return True
+
+    except Exception as exc:
+        logger.warning("Auto-reply failed for lead %s: %s", lead_id, exc)
+        return False

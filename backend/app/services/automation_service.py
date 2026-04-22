@@ -147,16 +147,18 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
                     await log_event(conn, org_id, lead_id, "call_started", "failed",
                                     {"error": str(e)})
 
-            # g) Schedule follow-up sequences
-            try:
-                from app.services.sequence_service import schedule_sequences
-                await schedule_sequences(lead_id, funnel_dict, conn)
-                if funnel_dict.get("sequence_enabled"):
-                    await log_event(conn, org_id, lead_id, "sequence_scheduled", "success")
-            except Exception as e:
-                logger.error(f"Sequence scheduling failed: {e}")
-                await log_event(conn, org_id, lead_id, "sequence_scheduled", "failed",
-                                {"error": str(e)})
+            # g) [DEPRECATED v5] schedule_sequences — disabled; engagement engine is now
+            #    the single source of truth for follow-up delivery. Leaving import commented
+            #    so the sequence_service module is not deleted accidentally.
+            # try:
+            #     from app.services.sequence_service import schedule_sequences
+            #     await schedule_sequences(lead_id, funnel_dict, conn)
+            #     if funnel_dict.get("sequence_enabled"):
+            #         await log_event(conn, org_id, lead_id, "sequence_scheduled", "success")
+            # except Exception as e:
+            #     logger.error(f"Sequence scheduling failed: {e}")
+            #     await log_event(conn, org_id, lead_id, "sequence_scheduled", "failed",
+            #                     {"error": str(e)})
 
             # h) Create engagement plan
             try:
@@ -171,12 +173,13 @@ async def process_automation(lead_id: str, pool: asyncpg.Pool):
             except Exception as e:
                 logger.error(f"Engagement plan creation failed: {e}")
 
-        # i) Process any due sequences (outside conn block)
-        try:
-            from app.services.sequence_worker import process_due_sequences
-            await process_due_sequences(pool)
-        except Exception as e:
-            logger.error(f"Sequence processing failed: {e}")
+        # i) [DEPRECATED v5] process_due_sequences — disabled; APScheduler now runs
+        #    process_due_engagement_steps every 60 s from main.py lifespan.
+        # try:
+        #     from app.services.sequence_worker import process_due_sequences
+        #     await process_due_sequences(pool)
+        # except Exception as e:
+        #     logger.error(f"Sequence processing failed: {e}")
 
         # j) Process due engagement steps (outside conn block)
         try:
